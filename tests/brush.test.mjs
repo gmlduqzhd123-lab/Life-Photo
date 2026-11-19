@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {paintStroke} from '../dist/brush.mjs';
+test('brush restores and erases continuous regions within bounds',()=>{const m=new Float32Array(100);paintStroke(m,10,10,{x:1,y:5},{x:8,y:5},1,1);for(let x=1;x<=8;x++)assert.equal(m[5*10+x],1);paintStroke(m,10,10,{x:4,y:5},{x:6,y:5},1,0);assert.equal(m[55],0);assert.equal(m[51],1);paintStroke(m,10,10,{x:-5,y:-5},{x:0,y:0},2,1);assert.equal(m[0],1);});
