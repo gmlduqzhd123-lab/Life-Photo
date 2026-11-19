@@ -23,6 +23,10 @@
 @media(max-width:820px){.workspace>*{min-width:0}.side-panel{min-width:0}.canvas-wrap{width:100%}.finish-options{grid-template-columns:repeat(2,minmax(0,1fr))}.scene-tip{max-width:calc(100% - 20px);white-space:normal;text-align:center}}
 @media(max-width:520px){.app{padding-left:12px;padding-right:12px}.topbar{gap:8px}.brand small{display:none}.steps{gap:2px;padding:10px 4px}.step{min-width:0;flex:1;font-size:.75rem}.canvas-wrap{max-width:100%}.sliders,.tool-details .sliders{grid-template-columns:minmax(0,1fr)}.sliders label:last-child{grid-column:auto}.finish-options{grid-template-columns:minmax(0,1fr)}.finish-actions .button{flex:1 1 100%}.decor-row>.primary{flex:1 1 100%}.tool-details{padding:0 12px}.button-row .button,.edit-toolbar .button{white-space:normal}.side-panel{width:100%}dialog{overflow-x:hidden}.camera-options .upload-button{min-height:44px}}
 
+.mobile-action-bar{display:none}#ready-list ul{list-style:none;padding:0;margin:0;display:grid;gap:10px}#ready-list li{padding:12px;border:1px solid #e5deef;border-radius:12px}#ready-list li p{margin:5px 0 8px;color:#635674;font-size:.875rem}.mobile-action-bar .button{width:100%;min-height:50px}
+@media(max-width:720px){.app{padding-bottom:calc(88px + env(safe-area-inset-bottom))}.mobile-action-bar{position:fixed;display:block;z-index:20;bottom:0;left:0;right:0;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:#ffffffed;border-top:1px solid #e6def0;box-shadow:0 -8px 24px #29203c14;backdrop-filter:blur(8px)}body:has(dialog[open]) .mobile-action-bar,body:has(input:not([type=range]):focus) .mobile-action-bar,body:has(textarea:focus) .mobile-action-bar{display:none}.toast{bottom:calc(82px + env(safe-area-inset-bottom))}}
+@media print{.mobile-action-bar{display:none!important}}
+
 /* 엽쌤 앱 공통: 📲 앱 설치 · 📱 QR, 하단 문구 */
 .ys-chip{gap:2px}footer{flex-wrap:wrap}.ys-credit{flex-basis:100%;text-align:center;font-size:.75rem;margin:0}.ys-credit a{text-decoration:underline}
 @media(max-width:820px){.header-actions{gap:8px}}
