@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200">
+<defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#d9eddf"/><stop offset="1" stop-color="#f0f4d9"/></linearGradient><linearGradient id="ground" x2="0" y2="1"><stop stop-color="#b7d1a2"/><stop offset="1" stop-color="#85b285"/></linearGradient></defs>
+<path fill="url(#sky)" d="M0 0h1600v1200H0z"/><circle cx="1211" cy="264" r="105" fill="#fff1ba" opacity=".85"/>
+<path d="M0 650c148-168 307-140 468-48s275 91 439-43 413-129 693 23v618H0z" fill="#c5dbc0"/><path d="M0 840c171-116 372-128 544-45s451-60 583-49 303 54 473 13v441H0z" fill="#a8c9a5"/>
+<g fill="#bad2b4"><path d="M329 304h26v635h-26zM1201 313h25v642h-25zM481 457h18v459h-18zM1095 464h18v432h-18z"/><circle cx="342" cy="315" r="115"/><circle cx="1215" cy="346" r="122"/><circle cx="486" cy="450" r="78"/><circle cx="1107" cy="474" r="84"/></g>
+<path d="M0 1009c351-115 463-27 745-9s511-86 855-1v201H0z" fill="url(#ground)"/><path d="M654 1200c47-104 103-122 132-172s35-72 15-99c56 30 75 61 65 107s13 93 81 164z" fill="#e5d4ac"/>
+<path d="M37 1135 89 137l126-28 9 1001zM1426 1132l-4-1010 106 6 68 1004z" fill="#9a7962"/><path d="m116 423 131-172 41 30-103 205M1470 386l-119-157-36 30 119 198" fill="#9a7962"/>
+<g fill="#568f76"><circle cx="83" cy="92" r="219"/><circle cx="279" cy="67" r="182"/><circle cx="1390" cy="56" r="199"/><circle cx="1575" cy="164" r="208"/></g><g fill="#6da389"><circle cx="96" cy="260" r="133"/><circle cx="373" cy="-8" r="157"/><circle cx="1290" cy="52" r="107"/><circle cx="1509" cy="311" r="121"/></g>
+<g fill="#558d72"><ellipse cx="116" cy="1100" rx="180" ry="76"/><ellipse cx="1462" cy="1094" rx="189" ry="76"/></g><g fill="#78a57a"><ellipse cx="39" cy="1022" rx="107" ry="61"/><ellipse cx="274" cy="1080" rx="98" ry="57"/><ellipse cx="1305" cy="1103" rx="84" ry="53"/></g>
+<g transform="translate(287 1084)"><path d="M-9 0h19v67H-9z" fill="#f3e4ce"/><path d="M-61 4a61 50 0 0 1 122 0z" fill="#e59885"/><g fill="#f8e8cf"><circle cx="-25" cy="-16" r="8"/><circle cx="17" cy="-30" r="9"/><circle cx="38" cy="-5" r="6"/></g></g>
+<g transform="translate(1302 1015) rotate(15)"><ellipse cx="-20" cy="-13" rx="24" ry="17" fill="#f0d18f"/><ellipse cx="21" cy="-13" rx="24" ry="17" fill="#f0d18f"/><ellipse cx="-14" cy="15" rx="18" ry="14" fill="#eab484"/><ellipse cx="16" cy="15" rx="18" ry="14" fill="#eab484"/><path d="M0-20v53" stroke="#69816f" stroke-width="7" stroke-linecap="round"/></g>
+</svg>

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200">
+<defs><linearGradient id="water" x2="0" y2="1"><stop stop-color="#75d9e5"/><stop offset=".5" stop-color="#3aaac6"/><stop offset="1" stop-color="#16758e"/></linearGradient><linearGradient id="sand" x2="0" y2="1"><stop stop-color="#f7dfaf"/><stop offset="1" stop-color="#e5c68f"/></linearGradient></defs>
+<path fill="url(#water)" d="M0 0h1600v1200H0z"/><path d="m160 0 180 0 270 1080H0zM780 0h150l330 1090H570zM1330 0h100l170 830v260h-380z" fill="#d9ffff" opacity=".11"/><path d="M0 48c183 63 266-49 434-7s289 13 414-8 264-6 405 20 245-23 347-27" fill="none" stroke="#c4f8f5" stroke-width="10" opacity=".55"/>
+<g fill="none" stroke="#b7f0ec" stroke-width="4" opacity=".65"><circle cx="190" cy="300" r="14"/><circle cx="145" cy="230" r="8"/><circle cx="1430" cy="501" r="17"/><circle cx="1477" cy="413" r="9"/><circle cx="302" cy="769" r="11"/><circle cx="1356" cy="825" r="9"/></g>
+<g transform="translate(225 360)"><path d="m-74 0-57-37v74z" fill="#fbaf73"/><ellipse rx="79" ry="48" fill="#ffd08d"/><path d="m-12-46 14 42-30 30" fill="none" stroke="#f8ad69" stroke-width="17"/><circle cx="42" cy="-7" r="5" fill="#304b63"/></g>
+<g transform="translate(1335 230) scale(-.8 .8)"><path d="m-72 0-55-35v70z" fill="#bd9ae7"/><ellipse rx="78" ry="47" fill="#d6b7ee"/><path d="M-15-41v82M17-40v80" fill="none" stroke="#f7e1fc" stroke-width="13"/><circle cx="43" cy="-7" r="5" fill="#304b63"/></g>
+<g fill="#a2e5e3" opacity=".7"><path d="m1228 536 35-15-35-15-28 15zM1287 574l35-15-35-15-28 15zM1350 539l35-15-35-15-28 15zM1196 591l25-12-25-12-22 12z"/></g>
+<path d="M0 1060c192-33 365-17 541 18s381 20 594-10 331-16 465 18v114H0z" fill="url(#sand)"/>
+<g stroke="#469c87" stroke-width="20" fill="none" stroke-linecap="round"><path d="M105 1118c-8-75-70-98-59-166s72-86 25-150M144 1118c27-72-4-107 28-166s70-83 49-123M1512 1128c-53-96-7-120-20-185s-62-82-37-152"/></g>
+<g fill="none" stroke="#ee9a95" stroke-width="22" stroke-linecap="round"><path d="M270 1120V967m0 50-44-45v-57m44 141 50-49v-66M1375 1124V989m0 35-48-49v-46m48 143 49-40v-66"/></g>
+<g fill="#eeaaa0"><ellipse cx="300" cy="1145" rx="69" ry="22"/><ellipse cx="1314" cy="1146" rx="49" ry="17"/></g><path d="m1110 1100 21 35 40-5-27 30 15 37-36-17-30 25 5-40-33-23 40-8z" fill="#eeaa75"/><g fill="#caa77c"><ellipse cx="601" cy="1145" rx="9" ry="4"/><ellipse cx="978" cy="1114" rx="6" ry="3"/><ellipse cx="1174" cy="1173" rx="8" ry="4"/></g>
+</svg>

@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "created": "2026-11-19",
+  "source": "Original code-native SVG artwork created for this project",
+  "license": "CC0-1.0",
+  "notes": "No third-party images, fonts, logos, or characters. demo-person.svg is an illustrative example and is not evidence of model segmentation quality.",
+  "backgrounds": ["space", "ocean", "forest", "dinosaur", "clouds", "stage", "classroom", "party"],
+  "background_size": [1600, 1200],
+  "demo_person_size": [800, 1000]
+}

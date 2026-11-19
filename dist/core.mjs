@@ -1,0 +1,15 @@
+export const CUT_W=1200,CUT_H=900,MAX_STICKERS=3;
+export const THEMES=[['space','우주 탐험','별빛 너머로 둥둥'],['ocean','바닷속 탐험','물고기와 함께 찰칵'],['forest','숲속 탐험','초록빛 모험의 시작'],['dinosaur','공룡 세계','아주 먼 옛날로'],['clouds','구름 위','하늘만큼 자유롭게'],['stage','발표 무대','오늘의 주인공'],['classroom','우리 교실','함께여서 더 특별한'],['party','축하 파티','반짝이는 우리들의 날']];
+export const MISSIONS=['우주를 둥둥 떠다니는 포즈!','바닷속에서 헤엄치는 포즈!','친구와 함께 손하트!','오늘의 주인공처럼 인사하기!'];
+export const uid=()=>crypto.randomUUID();
+export const clamp=(n,min,max)=>Math.min(max,Math.max(min,n));
+export function newProject(preset={}){return {cuts:Array.from({length:4},(_,i)=>({id:uid(),background:preset.backgrounds?.[i]||'space',fit:'cover',original:false,items:[]})),layout:preset.layout||'strip',frame:preset.frame||'#7862da',caption:preset.caption??'우리의 반짝이는 순간',subtitle:preset.subtitle??'함께라서 더 특별한 오늘',date:preset.date??new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul'}).format(new Date()),school:preset.school||'',logo:preset.logo||null,decorations:[]};}
+export function personItems(cut){return cut.items.filter(x=>x.kind==='person');}
+export function addItem(cut,assetId,w,h,kind='person',example=false){if(kind==='person'&&personItems(cut).length>=MAX_STICKERS)throw Error('한 컷에 인물 스티커는 3개까지 넣을 수 있어요.');const scale=Math.min(780/w,760/h,2);const item={id:uid(),assetId,kind,x:600,y:475,scale,rotation:0,border:kind==='person',softness:0.5,example};cut.items.push(item);return item;}
+export function transformPoint(item,x,y,w,h){const r=-item.rotation*Math.PI/180,dx=x-item.x,dy=y-item.y;return {x:(dx*Math.cos(r)-dy*Math.sin(r))/item.scale+w/2,y:(dx*Math.sin(r)+dy*Math.cos(r))/item.scale+h/2};}
+export function hitItem(cut,x,y,assets){for(const item of [...cut.items].reverse()){const a=assets.get(item.assetId);if(!a)continue;const p=transformPoint(item,x,y,a.w,a.h);if(p.x>=0&&p.y>=0&&p.x<=a.w&&p.y<=a.h)return item;}return null;}
+export function moveItem(item,x,y){item.x=clamp(x,0,CUT_W);item.y=clamp(y,0,CUT_H);}
+export function exportSpec(layout){if(layout==='grid')return{w:2800,h:2480,cells:Array.from({length:4},(_,i)=>({x:180+(i%2)*1240,y:120+Math.floor(i/2)*980,w:1200,h:900})),footerY:2050};return{w:1440,h:4400,cells:Array.from({length:4},(_,i)=>({x:120,y:120+i*940,w:1200,h:900})),footerY:3920};}
+export class History{constructor(limit=20){this.limit=limit;this.past=[];this.future=[];}record(state){this.past.push(structuredClone(state));if(this.past.length>this.limit)this.past.shift();this.future=[];}undo(current){if(!this.past.length)return current;this.future.push(structuredClone(current));return this.past.pop();}redo(current){if(!this.future.length)return current;this.past.push(structuredClone(current));return this.future.pop();}clear(){this.past=[];this.future=[];}}
+export const isComplete=state=>state.cuts.every(c=>personItems(c).length>0);
+export function presetOf(state,settings){return {backgrounds:state.cuts.map(c=>c.background),layout:state.layout,frame:state.frame,caption:state.caption,subtitle:state.subtitle,school:state.school,date:state.date,timer:settings.timer,sound:settings.sound,mission:settings.mission,customMissions:settings.customMissions};}
