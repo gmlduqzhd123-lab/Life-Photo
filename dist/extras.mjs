@@ -9,11 +9,11 @@ export function enableBrush({getItem,getAsset,apply,notify}){
  c.onpointerdown=e=>{history.push(mask.slice());if(history.length>20)history.shift();previous=null;c.setPointerCapture(e.pointerId);paint(e);};c.onpointermove=e=>{if(c.hasPointerCapture(e.pointerId))paint(e);};c.onpointerup=()=>{previous=null;};c.onpointercancel=()=>{previous=null;};
  $('brush-undo').onclick=()=>{if(history.length){mask=history.pop();redraw();}};
  for(const id of ['brush-cancel','brush-discard'])$(id).onclick=()=>{d.close();asset=null;mask=null;c.width=c.height=1;};
- d.addEventListener('cancel',()=>{asset=null;mask=null;c.width=c.height=1;});
+ d.addEventListener('close',()=>{asset=null;mask=null;history=[];c.width=c.height=1;});
  $('brush-apply').onclick=()=>{try{apply(mask);d.close();asset=null;mask=null;c.width=c.height=1;}catch(e){notify(e.message);}};
 }
 export async function checkReadiness(backgroundUrl,modelReady){
  const checks=[['브라우저 기본 기능',!!(window.Worker&&window.createImageBitmap&&window.HTMLCanvasElement)],['카메라 기능',!!navigator.mediaDevices?.getUserMedia],['인물 오리기 모델',modelReady]];
- for(const [name,url] of [['앱 파일','./app.mjs'],['모델 파일','./vendor/models/selfie_segmenter.tflite'],['WASM 파일','./vendor/mediapipe/wasm/vision_wasm_internal.wasm'],['선택한 배경',backgroundUrl]]){try{const r=await fetch(url,{method:'HEAD',cache:'no-store'});checks.push([name,r.ok]);}catch{checks.push([name,false]);}}
+ for(const [name,url] of [['앱 파일','./app.mjs'],['모델 파일','./vendor/models/selfie_segmenter.tflite'],['WASM 파일','./vendor/mediapipe/wasm/vision_wasm_internal.wasm'],['선택한 배경',backgroundUrl]]){try{const r=await fetch(url,{method:'GET',cache:'no-store'});checks.push([name,r.ok]);r.body?.cancel();}catch{checks.push([name,false]);}}
  return checks;
 }
