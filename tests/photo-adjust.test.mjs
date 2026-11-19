@@ -1,0 +1,4 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {adjustPixels,normalizeAdjustment} from '../dist/photo-adjust.mjs';
+test('default photo adjustments preserve all pixels including transparency',()=>{const p=new Uint8ClampedArray([40,80,120,255,120,30,20,0]);assert.deepEqual([...adjustPixels(p,{})],[40,80,120,255,120,30,20,0]);});
+test('brightness changes visible color while preserving alpha',()=>{const p=new Uint8ClampedArray([80,100,120,180]);adjustPixels(p,{brightness:125});assert.deepEqual([...p],[100,125,150,180]);});
+test('saturation reduces channel differences and clamps inputs',()=>{const p=new Uint8ClampedArray([200,100,50,255]);adjustPixels(p,{saturation:50});assert.ok(p[0]-p[1]<100);assert.deepEqual(normalizeAdjustment({brightness:10000,contrast:-4,saturation:'bad'}),{brightness:150,contrast:50,saturation:100});});
