@@ -1,4 +1,4 @@
-const VERSION='imagine-four-offline-v2';
+const VERSION='imagine-four-offline-v3';
 const paths=['./','./index.html','./styles.css','./app.mjs','./core.mjs','./render.mjs','./image-tools.mjs','./segment-client.mjs','./segment-worker.js','./storage.mjs','./brush.mjs','./extras.mjs','./preset-bundle.mjs','./photo-adjust.mjs','./vendor/mediapipe/vision_bundle.js','./vendor/mediapipe/wasm/vision_wasm_internal.js','./vendor/mediapipe/wasm/vision_wasm_internal.wasm','./vendor/mediapipe/wasm/vision_wasm_module_internal.js','./vendor/mediapipe/wasm/vision_wasm_module_internal.wasm','./vendor/models/selfie_segmenter.tflite',...['space','ocean','forest','dinosaur','clouds','stage','classroom','party'].map(x=>'./assets/backgrounds/'+x+'.svg'),'./assets/demo-person.svg'];
 const absolute=paths.map(p=>new URL(p,self.registration.scope).href),allowed=new Set(absolute);
 self.addEventListener('install',event=>event.waitUntil(self.skipWaiting()));
