@@ -1,0 +1,16 @@
+{
+  "id": "/Life-Photo/",
+  "name": "상상네컷 · 교실 스티커 포토부스",
+  "short_name": "상상네컷",
+  "description": "사진 속 인물을 스티커로 만들어 상상 속 배경에 놓는 교실용 네컷 포토부스",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f6fc",
+  "theme_color": "#7862da",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

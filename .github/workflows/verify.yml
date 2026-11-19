@@ -3,15 +3,39 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('verify-{0}', github.ref) || 'pages' }}
+  cancel-in-progress: false
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
       - run: node --test tests/*.test.mjs
       - run: node scripts/check.mjs
+      - name: Upload dist for GitHub Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+  # main 에 올리면 검사를 통과한 dist/ 를 https://gmlduqzhd123-lab.github.io/Life-Photo/ 로 배포한다
+  # (카메라는 https 주소에서만 켜진다). 처음 한 번은 저장소 Settings → Pages → Source 를 "GitHub Actions"로 둬야 한다.
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
