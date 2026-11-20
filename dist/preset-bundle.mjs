@@ -1,4 +1,5 @@
 // Bundles intentionally contain teacher-selected settings/assets only, never session photos.
+import {FRAME_STYLES} from './core.mjs?v=scrapbook-flow';
 const LIMIT=50*1024*1024, allowedTypes=new Set(['image/png','image/jpeg','image/webp']);
 export async function createBundle(preset,backgrounds,logo){
  const toData=blob=>new Promise((resolve,reject)=>{const r=new FileReader();r.onerror=()=>reject(Error('이미지를 읽을 수 없어요.'));r.onload=()=>resolve(r.result);r.readAsDataURL(blob);});
@@ -14,5 +15,6 @@ export function validateBundle(obj){
  const decode=(data)=>{if(typeof data!=='string'||data.length>14*1024*1024)throw Error('이미지 크기나 형식이 올바르지 않아요.');const match=/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]*={0,2})$/.exec(data);if(!match||!allowedTypes.has(match[1]))throw Error('지원하지 않는 이미지 형식이에요.');let raw;try{raw=atob(match[2]);}catch{throw Error('이미지 데이터가 손상됐어요.');}const bytes=Uint8Array.from(raw,c=>c.charCodeAt(0));if(bytes.length>10*1024*1024)throw Error('이미지는 10MB 이하여야 해요.');return new Blob([bytes],{type:match[1]});};
  const ids=new Set();let total=0;const backgrounds=obj.backgrounds.map(b=>{if(!b||typeof b.id!=='string'||!/^custom-[a-zA-Z0-9-]{1,64}$/.test(b.id)||ids.has(b.id)||typeof b.name!=='string'||b.name.length>60)throw Error('배경 정보가 올바르지 않아요.');ids.add(b.id);const blob=decode(b.data);total+=blob.size;return{id:b.id,name:b.name,blob};});if(total>LIMIT)throw Error('배경의 합계가 50MB를 넘어요.');
  const builtins=new Set(['space','ocean','forest','dinosaur','clouds','stage','classroom','party']);if(p.backgrounds.some(id=>!builtins.has(id)&&!ids.has(id)))throw Error('설정에서 사용하는 배경이 묶음에 없어요.');
- const preset={count:p.count,layout:p.layout,frame:p.frame,caption:p.caption,subtitle:p.subtitle,school:p.school,date:p.date,timer:Number(p.timer),sound:!!p.sound,mission:!!p.mission,lockBackground:!!p.lockBackground,customMissions:p.customMissions.slice(),backgrounds:p.backgrounds.slice()};return{preset,backgrounds,logo:obj.logo?decode(obj.logo):null};
+ if(p.frameStyle!==undefined&&!FRAME_STYLES.includes(p.frameStyle))throw Error('프레임 스타일을 확인할 수 없어요.');
+ const preset={count:p.count,layout:p.layout,frame:p.frame,frameStyle:p.frameStyle??'classic',caption:p.caption,subtitle:p.subtitle,school:p.school,date:p.date,timer:Number(p.timer),sound:!!p.sound,mission:!!p.mission,lockBackground:!!p.lockBackground,customMissions:p.customMissions.slice(),backgrounds:p.backgrounds.slice()};return{preset,backgrounds,logo:obj.logo?decode(obj.logo):null};
 }
