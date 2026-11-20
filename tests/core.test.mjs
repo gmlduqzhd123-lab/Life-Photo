@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {newProject,addItem,personItems,History,exportSpec,getPrintLayout,presetOf,hitItem,moveItem,isComplete} from '../dist/core.mjs';
+import {newProject,addItem,arrangePeople,personItems,History,exportSpec,getPrintLayout,presetOf,hitItem,moveItem,isComplete} from '../dist/core.mjs';
 test('deleting a middle cut preserves every other cut identity and content',()=>{const p=newProject(),ids=p.cuts.map(c=>c.id);p.cuts.forEach((c,i)=>addItem(c,'photo'+i,400,600));p.cuts[1].items=[];assert.deepEqual(p.cuts.map(c=>c.id),ids);assert.equal(p.cuts[2].items[0].assetId,'photo2');assert.equal(isComplete(p),false);});
 test('person limit applies to people rather than decorative items',()=>{const c=newProject().cuts[0];for(let i=0;i<8;i++)addItem(c,'heart',180,180,'decoration');for(let i=0;i<3;i++)addItem(c,'person',500,600);assert.equal(personItems(c).length,3);assert.throws(()=>addItem(c,'extra',500,600),/3개/);});
 test('history restores replacement, position and deletion without sharing references',()=>{let p=newProject();const h=new History();h.record(p);addItem(p.cuts[0],'first',400,600);h.record(p);p.cuts[0].items[0].assetId='replacement';p=h.undo(p);assert.equal(p.cuts[0].items[0].assetId,'first');p=h.redo(p);assert.equal(p.cuts[0].items[0].assetId,'replacement');h.clear();assert.equal(h.past.length+h.future.length,0);});
@@ -25,4 +25,32 @@ test('paper layout fits every copy inside the selected sheet margins', () => {
   const {cells, gap} = getPrintLayout('A6', 4);
   assert.equal(cells[1].x - cells[0].x - cells[0].w, gap);
   assert.equal(cells[2].y - cells[0].y - cells[0].h, gap);
+});
+
+test('arranging two or three people fits rotated photos without moving decorations', () => {
+  for (const count of [2, 3]) {
+    const cut = newProject().cuts[0];
+    const assets = new Map();
+    for (let i = 0; i < count; i++) {
+      const dims = {w: 410 + i * 220, h: 910 - i * 160};
+      const person = addItem(cut, 'person' + i, dims.w, dims.h);
+      person.rotation = i * 25 - 10;
+      assets.set(person.assetId, dims);
+    }
+    const decoration = addItem(cut, 'star', 180, 180, 'decoration');
+    const originalDecoration = {...decoration};
+    assert.ok(arrangePeople(cut, assets));
+    assert.deepEqual(decoration, originalDecoration);
+    let previousRight = 0;
+    for (const person of personItems(cut)) {
+      const {w, h} = assets.get(person.assetId);
+      const angle = person.rotation * Math.PI / 180;
+      const halfWidth = (Math.abs(Math.cos(angle)) * w + Math.abs(Math.sin(angle)) * h) * person.scale / 2;
+      const halfHeight = (Math.abs(Math.sin(angle)) * w + Math.abs(Math.cos(angle)) * h) * person.scale / 2;
+      assert.ok(person.x - halfWidth > previousRight);
+      assert.ok(person.x + halfWidth <= 1200);
+      assert.ok(person.y - halfHeight >= 0 && person.y + halfHeight <= 900);
+      previousRight = person.x + halfWidth;
+    }
+  }
 });

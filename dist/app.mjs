@@ -1,11 +1,11 @@
 import {BACKGROUND_FILTERS,BUILT_IN_BACKGROUNDS,listBackgrounds} from './background-catalog.mjs?v=background-gallery';
 import {normalizeAdjustment} from './photo-adjust.mjs';
 import {paintStroke} from './brush.mjs';
-import {CUT_W,CUT_H,MISSIONS,uid,clamp,newProject,personItems,addItem,hitItem,moveItem,History,isComplete,getPrintLayout,presetOf} from './core.mjs?v=scrapbook-flow';
+import {CUT_W,CUT_H,MISSIONS,uid,clamp,newProject,personItems,addItem,arrangePeople,exportSpec,hitItem,moveItem,History,isComplete,getPrintLayout,presetOf} from './core.mjs?v=classroom-tools';
 import {drawCut,renderProject,loadImage,makeDecoration,forgetImage,drawPaperPreview} from './render.mjs?v=scrapbook-flow';
 import {readPhoto,makeCutout} from './image-tools.mjs';
 import {initSegmenter,segmentPhoto,resetSegmenter,setStatusListener} from './segment-client.mjs';
-import {readSaved,saveSettings,clearSaved} from './storage.mjs';
+import {readSaved,saveSettings,clearSaved,listLessons,getLesson,saveLesson,deleteLesson} from './storage.mjs?v=classroom-tools';
 
 const $=id=>document.getElementById(id),on=(id,event,fn)=>$(id).addEventListener(event,fn);
 const assets = new Map();
@@ -14,11 +14,18 @@ let themeFilter = 'recommended';
 let showFavorites = false;
 let project=newProject(),active=0,selected=null,step='background',history=new History(),settings={timer:3,sound:false,mission:true,customMissions:[],lockBackground:false};
 let printUrl=null,cameraEpoch=0,busy=false,cancelEpoch=0,stream=null,facing='user',running=false,replaceTarget=null,sourceMode='append',toastTimer,logo=null,logoBlob=null,presetStatus='',renderVersion=0,previewTimer,prepared=false,downloadUrl=null,gesture=null;
+let preparedExport = null;
+let requestedExport = null;
 const pointers = new Map();
+const classroomModeKey = 'booth-classroom-mode';
+let classroomMode = false;
+let lessonNames = [];
+let lessonWorking = false;
+try { classroomMode = localStorage.getItem(classroomModeKey) === 'on'; } catch {}
 const mobileLayout = matchMedia('(max-width: 720px)');
 let cameraFailed = false;
 let previewRevision = 0;
-const OFFLINE_VERSION='imagine-four-offline-v9';let favorites=new Set();try{favorites=new Set(JSON.parse(localStorage.getItem('booth-favorite-backgrounds')||'[]'));}catch{}
+const OFFLINE_VERSION='imagine-four-offline-v10';let favorites=new Set();try{favorites=new Set(JSON.parse(localStorage.getItem('booth-favorite-backgrounds')||'[]'));}catch{}
 const cut=()=>project.cuts[active],item=()=>cut().items.find(x=>x.id===selected),currentAsset=()=>item()&&assets.get(item().assetId);
 function message(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,5500);}
 function safe(fn){return async(...args)=>{try{await fn(...args);}catch(e){if(e.name!=='AbortError')message(e.message||'다시 시도해 주세요.');}};}
@@ -73,7 +80,7 @@ function fillMissingCut() {
   if (index >= 0) choosePhotoCut(index);
 }
 
-function confirmAction(title,text){return new Promise(resolve=>{$('confirm-title').textContent=title;$('confirm-message').textContent=text;const dialog=$('confirm-dialog');let done=false;const finish=value=>{if(done)return;done=true;dialog.close();$('confirm-yes').onclick=null;$('confirm-no').onclick=null;dialog.removeEventListener('cancel',cancel);resolve(value);};const cancel=e=>{e.preventDefault();finish(false);};$('confirm-yes').onclick=()=>finish(true);$('confirm-no').onclick=()=>finish(false);dialog.addEventListener('cancel',cancel);dialog.showModal();});}
+function confirmAction(title,text,{yesLabel='확인',noLabel='취소'}={}){return new Promise(resolve=>{$('confirm-title').textContent=title;$('confirm-message').textContent=text;$('confirm-yes').textContent=yesLabel;$('confirm-no').textContent=noLabel;const dialog=$('confirm-dialog');let done=false;const finish=value=>{if(done)return;done=true;dialog.close();$('confirm-yes').onclick=null;$('confirm-no').onclick=null;dialog.removeEventListener('cancel',cancel);resolve(value);};const cancel=e=>{e.preventDefault();finish(false);};$('confirm-yes').onclick=()=>finish(true);$('confirm-no').onclick=()=>finish(false);dialog.addEventListener('cancel',cancel);dialog.showModal();});}
 function errorChoice(text){return new Promise(resolve=>{const d=$('error-dialog');$('error-message').textContent=text;let done=false;const finish=value=>{if(done)return;done=true;d.close();d.removeEventListener('cancel',cancel);resolve(value);};const cancel=e=>{e.preventDefault();finish('cancel');};$('error-retry').onclick=()=>finish('retry');$('error-original').onclick=()=>finish('original');$('error-cancel').onclick=()=>finish('cancel');d.addEventListener('cancel',cancel);d.showModal();});}
 function chooseBackground(background) {
   mutate(() => {
@@ -216,8 +223,8 @@ function renderCutButtons() {
 }
 
 function renderControls(){
- document.querySelectorAll('#cut-grid button').forEach(b=>b.disabled=busy||running);document.querySelectorAll('#background-grid button').forEach(b=>b.disabled=busy||running||settings.lockBackground);document.getElementById("all-backgrounds").disabled=busy||running||settings.lockBackground;$('undo').disabled=busy||running||!history.past.length;$('redo').disabled=busy||running||!history.future.length;renderFinishControls();$('capture').textContent=`${settings.timer}초 후 촬영`;$('auto-capture').textContent=`${project.count||4}컷 연속 촬영`;$('capture').disabled=!stream||busy||running;$('start-camera').hidden=!!stream;$('stop-camera').hidden=!stream;$('switch-camera').disabled=!stream||busy||running;$('auto-capture').disabled=!stream||busy||running;$('stop-capture').hidden=!running;$('photo-input').disabled=busy||running;$('photo-browse').disabled=busy||running;for(const id of ['go-camera','demo-fill','teacher-open','add-person','retake','clear-cut','next-cut','show-finish','new-group'])$(id).disabled=busy||running;document.querySelectorAll('[data-step]').forEach(b=>b.disabled=busy||running);$('toggle-original').disabled=busy||!personItems(cut()).length;$('toggle-original').textContent=cut().original?'스티커로 돌아가기':'원본 보기';$('background-fit').disabled=busy||settings.lockBackground;$('background-theme').disabled=busy||running;$('background-favorites').disabled=busy||running;$('scene').setAttribute('aria-busy',String(busy));updateMobileAction();}
-function renderItemControls(){const adjustment=normalizeAdjustment(cut().adjustment);for(const name of ['brightness','contrast','saturation']){const control=$(`adjust-${name}`);control.value=adjustment[name];control.disabled=busy||!personItems(cut()).length;$(name+'-value').textContent=adjustment[name]+'%';}$('adjust-reset').disabled=busy||!personItems(cut()).length;const it=item(),a=currentAsset();$('selected-tools').hidden=!it||cut().original;for(const id of ['item-front','item-back','item-center','item-duplicate','item-copy','item-delete','item-size','item-rotation','item-border','item-softness'])$(id).disabled=busy||!it;$('item-softness').disabled=busy||!a?.mask;if(it){$('item-size').value=Math.round(it.scale*100);$('item-rotation').value=it.rotation;$('item-softness').value=Math.round(it.softness*100);$('item-border').checked=it.border;}$('retake').disabled=busy||!personItems(cut()).length;$('brush-open').disabled=busy||!a?.mask;const list=$('item-list');list.replaceChildren();cut().items.forEach((it,i)=>{const b=document.createElement('button');b.className='item-chip'+(selected===it.id?' active':'');b.textContent=it.kind==='person'?`${it.example?'예시':'인물'} ${cut().items.slice(0,i+1).filter(x=>x.kind==='person').length}`:`장식 ${i+1}`;b.disabled=busy;b.onclick=()=>{selected=it.id;render();};list.append(b);});}
+ document.querySelectorAll('#cut-grid button').forEach(b=>b.disabled=busy||running);document.querySelectorAll('#background-grid button').forEach(b=>b.disabled=busy||running||settings.lockBackground);document.getElementById("all-backgrounds").disabled=busy||running||settings.lockBackground;$('undo').disabled=busy||running||!history.past.length;$('redo').disabled=busy||running||!history.future.length;renderFinishControls();$('capture').textContent=`${settings.timer}초 후 촬영`;$('auto-capture').textContent=`${project.count||4}컷 연속 촬영`;$('capture').disabled=!stream||busy||running;$('start-camera').hidden=!!stream;$('stop-camera').hidden=!stream;$('switch-camera').disabled=!stream||busy||running;$('auto-capture').disabled=!stream||busy||running;$('stop-capture').hidden=!running;$('photo-input').disabled=busy||running;$('photo-browse').disabled=busy||running;for(const id of ['go-camera','demo-fill','teacher-open','add-person','retake','clear-cut','next-cut','show-finish','new-group'])$(id).disabled=busy||running;document.querySelectorAll('[data-step]').forEach(b=>b.disabled=busy||running);$('toggle-original').disabled=busy||!personItems(cut()).length;$('toggle-original').textContent=cut().original?'스티커로 돌아가기':'원본 보기';$('background-fit').disabled=busy||settings.lockBackground;$('background-theme').disabled=busy||running;$('background-favorites').disabled=busy||running;$('scene').setAttribute('aria-busy',String(busy));$('classroom-mode-exit').disabled=busy||running;updateMobileAction();}
+function renderItemControls(){const canArrange=!cut().original&&personItems(cut()).length>1;$('arrange-people').hidden=!canArrange;$('arrange-people').disabled=busy||running||!canArrange;const adjustment=normalizeAdjustment(cut().adjustment);for(const name of ['brightness','contrast','saturation']){const control=$(`adjust-${name}`);control.value=adjustment[name];control.disabled=busy||!personItems(cut()).length;$(name+'-value').textContent=adjustment[name]+'%';}$('adjust-reset').disabled=busy||!personItems(cut()).length;const it=item(),a=currentAsset();$('selected-tools').hidden=!it||cut().original;for(const id of ['item-front','item-back','item-center','item-duplicate','item-copy','item-delete','item-size','item-rotation','item-border','item-softness'])$(id).disabled=busy||!it;$('item-softness').disabled=busy||!a?.mask;if(it){$('item-size').value=Math.round(it.scale*100);$('item-rotation').value=it.rotation;$('item-softness').value=Math.round(it.softness*100);$('item-border').checked=it.border;}$('retake').disabled=busy||!personItems(cut()).length;$('brush-open').disabled=busy||!a?.mask;const list=$('item-list');list.replaceChildren();cut().items.forEach((it,i)=>{const b=document.createElement('button');b.className='item-chip'+(selected===it.id?' active':'');b.textContent=it.kind==='person'?`${it.example?'예시':'인물'} ${cut().items.slice(0,i+1).filter(x=>x.kind==='person').length}`:`장식 ${i+1}`;b.disabled=busy;b.onclick=()=>{selected=it.id;render();};list.append(b);});}
 function schedulePreview() {
   clearTimeout(previewTimer);
   const revision = ++previewRevision;
@@ -262,6 +269,11 @@ on('demo-fill','click',safe(async()=>{if(isDirty()&&!await confirmAction('예시
 function selectedMutation(fn){if(!item())return;mutate(()=>fn(item()));}
 on('item-front','click',()=>selectedMutation(it=>{cut().items=cut().items.filter(x=>x!==it);cut().items.push(it);}));on('item-back','click',()=>selectedMutation(it=>{cut().items=cut().items.filter(x=>x!==it);cut().items.unshift(it);}));on('item-center','click',()=>selectedMutation(it=>{it.x=600;it.y=450;}));on('item-delete','click',()=>selectedMutation(it=>{cut().items=cut().items.filter(x=>x!==it);selected=null;}));
 function duplicate(next){if(!item())return;const original=item(),dest=next?project.cuts[(active+1)%(project.count||4)]:cut();if(original.kind==='person'&&personItems(dest).length>=3){message('복사할 컷의 인물 스티커가 이미 3개예요.');return;}mutate(()=>{const copy={...original,id:uid(),x:clamp(original.x+(next?0:50),0,1200),y:clamp(original.y+(next?0:30),0,900)};dest.items.push(copy);if(!next)selected=copy.id;});if(next)message('다음 컷에 스티커를 복사했어요.');}
+on('arrange-people','click',()=>{
+  if (cut().original || personItems(cut()).length < 2) return;
+  mutate(() => arrangePeople(cut(), assets));
+  message('인물을 나란히 놓았어요. 각각 움직이거나 크기를 바꿀 수 있어요.');
+});
 on('item-duplicate','click',()=>duplicate(false));on('item-copy','click',()=>duplicate(true));on('item-border','change',e=>selectedMutation(it=>it.border=e.target.checked));
 let sliderRecorded=false;
 for(const id of ['item-size','item-rotation','item-softness']){on(id,'pointerdown',()=>{if(!busy&&item()){record();sliderRecorded=true;}});on(id,'keydown',e=>{if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End'].includes(e.key)&&!sliderRecorded){record();sliderRecorded=true;}});on(id,'input',()=>{if(!item()||busy)return;if(!sliderRecorded){record();sliderRecorded=true;}if(id==='item-size')item().scale=Number($(id).value)/100;if(id==='item-rotation')item().rotation=Number($(id).value);if(id!=='item-softness'){drawCut($('scene'),cut(),assets,backgrounds,{selected});renderCutButtons();}});on(id,'change',safe(async()=>{sliderRecorded=false;if(id==='item-softness'&&item()){const a=currentAsset();if(a?.mask){const image=makeCutout(a.source,a.mask,a.mw,a.mh,Number($(id).value)/100),id=uid(),it=item();assets.set(id,{...a,image,w:image.width,h:image.height});it.scale*=a.w/image.width;it.assetId=id;it.softness=Number($('item-softness').value)/100;}}render();}));}
@@ -273,26 +285,145 @@ for(const type of ['pointerup','pointercancel'])on('scene',type,e=>{pointers.del
 document.addEventListener('keydown',e=>{if(e.target.matches('input,textarea,select')||document.querySelector('dialog[open]')||busy)return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();$(e.shiftKey?'redo':'undo').click();return;}if(document.activeElement!==$('scene')||!item())return;const moves={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};if(moves[e.key]){e.preventDefault();const [x,y]=moves[e.key],n=e.shiftKey?30:10;selectedMutation(it=>moveItem(it,it.x+x*n,it.y+y*n));}if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();$('item-delete').click();}});
 for(const [id,key]of [['layout','layout'],['frame-color','frame'],['frame-style','frameStyle'],['caption','caption'],['subtitle','subtitle'],['date','date'],['school','school']]){on(id,'change',e=>mutate(()=>project[key]=e.target.value));}
 function syncFields(){for(const [id,key]of [['layout','layout'],['frame-color','frame'],['frame-style','frameStyle'],['caption','caption'],['subtitle','subtitle'],['date','date'],['school','school']])$(id).value=project[key];}
-async function download(small=false){if(busy||!isComplete(project))return;stopCamera();setBusy(true,'네컷 사진을 만들고 있어요');try{const scale=small?Math.min(1,2400/(project.layout==='grid'?2800:4400)):1;const canvas=await renderProject(project,assets,backgrounds,scale,logo);const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('저장 파일을 만들지 못했어요.')),'image/png'));canvas.width=canvas.height=0;if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=URL.createObjectURL(blob);const a=document.createElement('a');a.href=downloadUrl;a.download=`상상네컷_${new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul'}).format(new Date())}_${Date.now().toString(36).slice(-5)}.png`;a.click();$('save-fallback').href=downloadUrl;$('save-fallback').textContent='저장이 안 되면 이미지 열기 후 길게 눌러 저장해 주세요.';$('save-fallback').hidden=false;message('이미지 저장을 요청했어요. 다운로드 폴더를 확인해 주세요.');}catch(e){$('download-small').hidden=false;message('큰 이미지 저장을 완료하지 못했어요. 작은 크기로 다시 저장해 주세요.');}finally{setBusy(false);}}
+function exportIsCurrent(entry) {
+  return entry?.project === JSON.stringify(project) && entry.logo === logo;
+}
+
+function clearExportImage() {
+  if ($('export-dialog').open) $('export-dialog').close();
+  $('export-image').removeAttribute('src');
+  $('export-new-tab').removeAttribute('href');
+  if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+  downloadUrl = null;
+  preparedExport = null;
+}
+
+function requestPngDownload() {
+  if (!downloadUrl || !exportIsCurrent(preparedExport)) return;
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+  link.download = preparedExport.name;
+  link.click();
+  requestedExport = {...preparedExport};
+  $('export-dialog-status').textContent = '저장을 요청했어요. 기기에서 파일을 확인해 주세요.';
+  renderFinishControls();
+}
+
+function showExportImage() {
+  $('export-image').src = downloadUrl;
+  $('export-new-tab').href = downloadUrl;
+  $('export-dialog-status').textContent = '';
+  $('export-dialog').showModal();
+}
+
+async function exportPng({small = false, view = false} = {}) {
+  if (busy || !isComplete(project)) return;
+  if (downloadUrl && exportIsCurrent(preparedExport) && preparedExport.small === small) {
+    if (view) showExportImage();
+    else requestPngDownload();
+    return;
+  }
+  const epoch = cancelEpoch;
+  const snapshot = {project: JSON.stringify(project), logo, small};
+  stopCamera();
+  setBusy(true, '네컷 사진을 만들고 있어요');
+  let canvas;
+  try {
+    const spec = exportSpec(project.layout, project.count);
+    const scale = small ? Math.min(1, 2400 / Math.max(spec.w, spec.h)) : 1;
+    canvas = await renderProject(project, assets, backgrounds, scale, logo);
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(b => b ? resolve(b) : reject(Error('PNG 생성 실패')), 'image/png');
+    });
+    if (epoch !== cancelEpoch || !exportIsCurrent(snapshot)) return;
+    clearExportImage();
+    downloadUrl = URL.createObjectURL(blob);
+    const date = new Intl.DateTimeFormat('sv-SE', {timeZone:'Asia/Seoul'}).format(new Date());
+    preparedExport = {...snapshot, name: `상상네컷_${date}_${Date.now().toString(36).slice(-5)}${small ? '_작게' : ''}.png`};
+    if (view) showExportImage();
+    else requestPngDownload();
+  } catch {
+    if (epoch === cancelEpoch) message(small
+      ? '작은 PNG를 만들지 못했어요. 기기 공간을 확인하고 다시 시도해 주세요.'
+      : '고화질 PNG를 만들지 못했어요. 작은 PNG 저장을 이용해 주세요.');
+  } finally {
+    if (canvas) canvas.width = canvas.height = 0;
+    if (epoch === cancelEpoch) setBusy(false);
+  }
+}
+
 function clearPrint(){if(printUrl){URL.revokeObjectURL(printUrl);printUrl=null;}$('print-image').removeAttribute('src');$('print-sheet').querySelectorAll('.print-copy').forEach(x=>x.remove());}
 on('print-photo','click',safe(async()=>{if(busy||!isComplete(project))return;stopCamera();setBusy(true,'인쇄할 사진을 준비하고 있어요');let url;try{const canvas=await renderProject(project,assets,backgrounds,1,logo);const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('인쇄 이미지를 만들지 못했어요.')),'image/png'));canvas.width=canvas.height=0;clearPrint();url=URL.createObjectURL(blob);printUrl=url;const image=$('print-image');await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=()=>reject(Error('인쇄 이미지를 불러오지 못했어요.'));image.src=url;});const sheet=$('print-sheet'),paper=getPrintLayout($('print-paper').value,$('print-copies').value),copies=paper.copies;sheet.dataset.copies=String(copies);for(let i=1;i<copies;i++){const copy=image.cloneNode();copy.removeAttribute('id');copy.className='print-copy';copy.alt='';sheet.append(copy);}let style=$('print-page-style');if(!style){style=document.createElement('style');style.id='print-page-style';document.head.append(style);}style.textContent=`@page{size:${paper.cssSize};margin:${paper.margin}mm} @media print{#print-sheet{height:${paper.height - 2 * paper.margin}mm;gap:${paper.gap}mm}}`;setBusy(false);const release=()=>{clearPrint();window.removeEventListener('afterprint',release);};window.addEventListener('afterprint',release);window.print();}catch(e){clearPrint();message('인쇄를 준비하지 못했어요. PNG 저장 후 기기의 사진 앱에서 인쇄해 주세요.');}finally{setBusy(false);}}));
-on('download','click',()=>download());on('download-small','click',()=>download(true));
-on('new-group','click',safe(async()=>{if(!await confirmAction('다음 모둠을 시작할까요?','결과 파일을 기기에 저장했는지 확인해 주세요. 촬영 사진과 편집 기록은 지워지며 되돌릴 수 없어요. 이미 다운로드한 PNG는 기기에 남아요. 배경과 교사 설정은 유지돼요.'))return;const preset=presetOf(project,settings);cancelEpoch++;resetSegmenter();stopCamera();clearPrint();history.clear();assets.clear();pointers.clear();gesture=null;const oldScene=$('scene');oldScene.getContext('2d').clearRect(0,0,oldScene.width,oldScene.height);$('full-preview').replaceChildren();clearPaperPreview();$('full-preview-section').hidden=true;if(downloadUrl){URL.revokeObjectURL(downloadUrl);downloadUrl=null;}$('save-fallback').hidden=true;$('download-small').hidden=true;clearTimeout(previewTimer);document.getElementById("full-preview").replaceChildren();document.getElementById("full-preview-section").hidden=true;pointers.clear();gesture=null;project=newProject(preset);active=0;selected=null;replaceTarget=null;sourceMode='append';step='background';syncFields();await render();message('다음 모둠을 위한 준비가 끝났어요.');initSegmenter().catch(()=>{});}));
+on('download','click',()=>exportPng());
+on('download-small','click',()=>exportPng({small:true}));
+on('export-view','click',()=>exportPng({view:true}));
+on('export-download','click',requestPngDownload);
+on('new-group', 'click', safe(async () => {
+  let title = '다음 모둠을 시작할까요?';
+  let body = '다음 모둠을 시작하면 현재 사진과 편집 기록이 지워집니다.';
+  let noLabel = '취소';
+  if (isComplete(project) && !exportIsCurrent(requestedExport)) {
+    title = '이번 사진을 먼저 저장할까요?';
+    body = '현재 사진에 대한 PNG 저장 요청이 없어요. 저장이나 인쇄를 확인한 후 다음 모둠을 시작하세요. 계속하면 사진과 편집 기록이 지워져요.';
+    noLabel = '사진 화면으로 돌아가기';
+  } else if (isComplete(project)) {
+    body = '기기에서 저장된 파일을 확인해 주세요. ' + body;
+  } else if (isDirty()) {
+    title = '빈 컷이 있는 상태로 다음 모둠을 시작할까요?';
+    noLabel = '사진 화면으로 돌아가기';
+  }
+  if (!await confirmAction(title, body, {yesLabel:'다음 모둠 시작',noLabel})) return;
+  const preset = presetOf(project, settings);
+  cancelEpoch++;
+  resetSegmenter();
+  stopCamera();
+  clearPrint();
+  clearExportImage();
+  requestedExport = null;
+  history.clear();
+  assets.clear();
+  pointers.clear();
+  gesture = null;
+  const scene = $('scene');
+  scene.getContext('2d').clearRect(0, 0, scene.width, scene.height);
+  $('full-preview').replaceChildren();
+  clearPaperPreview();
+  $('full-preview-section').hidden = true;
+  clearTimeout(previewTimer);
+  project = newProject(preset);
+  active = 0;
+  selected = null;
+  replaceTarget = null;
+  sourceMode = 'append';
+  step = 'background';
+  await render();
+  scrollToStage();
+  message('다음 모둠을 위한 준비가 끝났어요.');
+  initSegmenter().catch(() => {});
+}));
 function teacherSync(){$('cut-count').value=project.count||4;$('timer').value=settings.timer;$('sound').checked=settings.sound;$('mission-on').checked=settings.mission;$('lock-background').checked=settings.lockBackground;$('custom-missions').value=settings.customMissions.join('\n');renderCustomBackgrounds();$('preset-status').textContent=presetStatus;}
-on('teacher-open','click',()=>{teacherSync();$('teacher-dialog').showModal();refreshOfflineNotice();});on('teacher-check-ready','click',()=>{$('teacher-dialog').close();$('check-ready').click();});on('privacy-open','click',()=>$('privacy-dialog').showModal());document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());
+function openTeacherSettings() {
+  teacherSync();
+  $('teacher-dialog').showModal();
+  refreshOfflineNotice();
+  refreshLessons().catch(() => {
+    $('lesson-status').textContent = '이 기기에서 수업 설정 목록을 읽지 못했어요.';
+  });
+}
+on('teacher-open', 'click', openTeacherSettings);on('teacher-check-ready','click',()=>{$('teacher-dialog').close();$('check-ready').click();});on('privacy-open','click',()=>$('privacy-dialog').showModal());document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());
 on('cut-count','change',safe(async e=>{const n=Number(e.target.value);if(n<(project.count||4)&&project.cuts.slice(n,project.count).some(c=>c.items.length)){if(!await confirmAction('컷 수를 줄일까요?','화면에 보이지 않는 컷은 유지되며 컷 수를 다시 늘리면 돌아옵니다.')){e.target.value=project.count;return;}}mutate(()=>{project.count=n;active=Math.min(active,n-1);selected=null;});}));
 on('timer','change',e=>{settings.timer=Number(e.target.value);renderControls();});on('sound','change',e=>settings.sound=e.target.checked);on('mission-on','change',e=>{settings.mission=e.target.checked;render();});on('lock-background','change',e=>{settings.lockBackground=e.target.checked;render();});on('custom-missions','change',e=>{settings.customMissions=e.target.value.split('\n').map(x=>x.trim().slice(0,60)).filter(Boolean).slice(0,4);render();});
 function renderCustomBackgrounds(){const root=$('custom-background-list');root.replaceChildren();for(const b of backgrounds.filter(x=>!x.builtIn)){const div=document.createElement('div'),img=document.createElement('img'),span=document.createElement('span'),del=document.createElement('button');img.src=b.url;img.alt='';span.textContent=b.name;del.textContent='×';del.setAttribute('aria-label',`${b.name} 배경 삭제`);del.onclick=()=>{mutate(()=>{project.cuts.forEach(c=>{if(c.background===b.id)c.background='space';});backgrounds.splice(backgrounds.indexOf(b),1);forgetImage(b.url);URL.revokeObjectURL(b.url);});renderCustomBackgrounds();};div.append(img,span,del);root.append(div);}}
 on('background-input','change',safe(async e=>{const files=[...e.target.files];e.target.value='';for(const file of files){if(backgrounds.filter(b=>!b.builtIn).length>=20)throw Error('나만의 배경은 20개까지 추가할 수 있어요.');await readPhoto(file);const id='custom-'+uid(),b={id,name:file.name.replace(/\.[^.]+$/,'').slice(0,24),url:URL.createObjectURL(file),blob:file,builtIn:false};backgrounds.push(b);}if(files.length){themeFilter='custom';showFavorites=false;}renderCustomBackgrounds();render();message('배경을 추가했어요. 기기에 보관하려면 설정 저장을 눌러 주세요.');}));
 on('logo-input','change',safe(async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;logo=await readPhoto(file);logoBlob=file;$('logo-status').textContent='로고가 준비됐어요. 네컷 완성 화면에서 확인해 주세요.';schedulePreview();}));on('remove-logo','click',()=>{logo=null;logoBlob=null;$('logo-status').textContent='로고를 지웠어요.';schedulePreview();});
 on('save-preset','click',safe(async()=>{try{await saveSettings({...presetOf(project,settings),lockBackground:settings.lockBackground},backgrounds.filter(b=>!b.builtIn).map(({id,name,blob})=>({id,name,blob})),logoBlob);presetStatus='이 기기에 배경과 설정을 저장했어요. 학생 사진은 저장하지 않았어요.';}catch(e){presetStatus='기기에 저장하지 못했어요. 이번 사용 중에는 계속 쓸 수 있어요. '+e.message;}$('preset-status').textContent=presetStatus;}));
-on('delete-preset','click',safe(async()=>{if(!await confirmAction('기기에 저장한 준비 내용을 지울까요?','저장한 배경·문구·촬영 설정·로고를 삭제해요. 현재 진행 중인 사진은 유지돼요.'))return;await clearSaved();presetStatus='기기에 저장한 내용을 삭제했어요. 이번 사용 중인 설정은 유지돼요.';$('preset-status').textContent=presetStatus;}));
+on('delete-preset','click',safe(async()=>{if(!await confirmAction('기본 시작 설정을 지울까요?','자동으로 불러오는 기본 시작 설정을 삭제해요. 이름 붙인 수업 설정과 현재 사진은 유지돼요.'))return;await clearSaved();presetStatus='기본 시작 설정을 삭제했어요. 현재 화면의 설정은 유지돼요.';$('preset-status').textContent=presetStatus;}));
 setStatusListener(state=>{prepared=state==='ready';$('model-status').textContent=state==='ready'?'✓ 인물 오리기 준비 완료':state==='loading'?'인물 오리기 준비 중':'인물 오리기 다시 준비';$('model-status').classList.toggle('ready',prepared);});
 on('model-status','click',safe(async()=>{if(prepared){message('사진을 찍거나 불러오면 인물을 오려 드려요.');return;}resetSegmenter();await initSegmenter();message('인물 오리기가 준비됐어요.');}));
 document.addEventListener('visibilitychange',()=>{if(document.hidden){if(running){cancelEpoch++;running=false;resetSegmenter();setBusy(false);}stopCamera();}});
-window.addEventListener('pagehide',()=>{cancelEpoch++;renderVersion++;clearTimeout(previewTimer);if($('brush-dialog').open)$('brush-dialog').close();resetSegmenter();stopCamera();clearPrint();assets.clear();history.clear();project.cuts.forEach(c=>c.items=[]);document.querySelectorAll('#scene,#cut-grid canvas,#full-preview canvas,#brush-canvas,#paper-preview').forEach(c=>c.getContext('2d')?.clearRect(0,0,c.width,c.height));$('full-preview').replaceChildren();if(downloadUrl){URL.revokeObjectURL(downloadUrl);downloadUrl=null;}$('save-fallback').hidden=true;});window.addEventListener('pageshow',event=>{if(event.persisted){active=0;selected=null;step='background';render();initSegmenter().catch(()=>{});}});
+window.addEventListener('pagehide',()=>{cancelEpoch++;renderVersion++;clearTimeout(previewTimer);if($('brush-dialog').open)$('brush-dialog').close();resetSegmenter();stopCamera();clearPrint();assets.clear();history.clear();project.cuts.forEach(c=>c.items=[]);document.querySelectorAll('#scene,#cut-grid canvas,#full-preview canvas,#brush-canvas,#paper-preview').forEach(c=>c.getContext('2d')?.clearRect(0,0,c.width,c.height));$('full-preview').replaceChildren();clearExportImage();requestedExport=null;});window.addEventListener('pageshow',event=>{if(event.persisted){active=0;selected=null;step='background';render();initSegmenter().catch(()=>{});}});
 window.addEventListener('beforeunload',e=>{if(isDirty()){e.preventDefault();e.returnValue='';}});
-async function boot(){try{const saved=await readSaved();if(saved){for(const b of saved.backgrounds||[])backgrounds.push({...b,url:URL.createObjectURL(b.blob),builtIn:false});project=newProject(saved.preset);settings={...settings,...Object.fromEntries(Object.entries(saved.preset).filter(([k])=>['timer','sound','mission','customMissions','lockBackground'].includes(k)))};if(saved.logo){logo=await readPhoto(saved.logo);logoBlob=saved.logo;}presetStatus='저장해 둔 배경과 설정을 불러왔어요.';}}catch{presetStatus='기기 저장소를 사용할 수 없어 이번 사용 중에만 설정을 유지해요.';}syncFields();render();initSegmenter().catch(()=>message('인물 오리기 준비를 완료하지 못했어요. 다시 준비하거나 원본 모드로 사용할 수 있어요.'));}
+async function boot(){syncClassroomMode();try{const saved=await readSaved();if(saved){for(const b of saved.backgrounds||[])backgrounds.push({...b,url:URL.createObjectURL(b.blob),builtIn:false});project=newProject(saved.preset);settings={...settings,...Object.fromEntries(Object.entries(saved.preset).filter(([k])=>['timer','sound','mission','customMissions','lockBackground'].includes(k)))};if(saved.logo){logo=await readPhoto(saved.logo);logoBlob=saved.logo;}presetStatus='저장해 둔 배경과 설정을 불러왔어요.';}}catch{presetStatus='기기 저장소를 사용할 수 없어 이번 사용 중에만 설정을 유지해요.';}syncFields();render();initSegmenter().catch(()=>message('인물 오리기 준비를 완료하지 못했어요. 다시 준비하거나 원본 모드로 사용할 수 있어요.'));}
 boot();
 import {enableBrush,checkReadiness} from './extras.mjs?v=scrapbook-flow';
 enableBrush({getItem:item,getAsset:id=>assets.get(id),notify:message,apply:mask=>{const it=item(),a=currentAsset();if(!it||!a?.mask)throw Error('인물을 다시 선택해 주세요.');const image=makeCutout(a.source,mask,a.mw,a.mh,it.softness),id=uid();record();assets.set(id,{...a,mask:mask.slice(),image,w:image.width,h:image.height});it.scale*=a.w/image.width;it.assetId=id;cleanAssets();render();}});
@@ -311,7 +442,7 @@ function goToReadinessTarget(target){$('ready-dialog').close();if(target==='came
 on('check-ready','click',safe(async()=>{$('ready-dialog').showModal();$('ready-summary').textContent='준비 상태를 확인하고 있어요.';$('ready-list').textContent='확인 중...';const b=backgrounds.find(x=>x.id===cut().background);const checks=await checkReadiness(b?.url||'./assets/backgrounds/space.svg',prepared,import.meta.url);const offline=await offlineState();checks.push(['오프라인 준비',offline.prepared]);if(navigator.storage?.estimate){try{const estimate=await navigator.storage.estimate();if(Number.isFinite(estimate.quota)&&Number.isFinite(estimate.usage))checks.push(['저장 공간',estimate.quota-estimate.usage>30*1024*1024]);}catch{}}$('ready-summary').textContent=checks.every(([name,ok])=>ok||name==='오프라인 준비')?'기본 준비 항목을 확인했어요. 카메라는 직접 시험해 주세요.':'일부 항목을 확인해 주세요. 오프라인 준비는 선택 사항입니다.';const list=document.createElement('ul');for(const [name,ok] of checks){const li=document.createElement('li');const status=document.createElement('span');status.textContent=ok?(name==='카메라 기능'?'✓ 브라우저 기능 지원 · 카메라 (실제 영상 확인 필요)':name==='저장 공간'?'✓ 여유 공간 추정 · 저장 공간 (실제 저장은 별도 확인)':'✓ 확인됨 · '+name):'확인 필요 · '+name;li.append(status);if(!ok){const action=readinessActions[name];if(action){const hint=document.createElement('p');hint.textContent=action.hint;li.append(hint);if(action.target){const button=document.createElement('button');button.type='button';button.className='button compact';button.textContent=action.label;button.onclick=()=>goToReadinessTarget(action.target);li.append(button);}}}list.append(li);}$('ready-list').replaceChildren(list);}));
 import {createBundle,validateBundle} from './preset-bundle.mjs?v=background-gallery';
 on('bundle-export','click',safe(async()=>{const b=await createBundle({...presetOf(project,settings),lockBackground:settings.lockBackground},backgrounds.filter(x=>!x.builtIn),logoBlob);const url=URL.createObjectURL(b),a=document.createElement('a');a.href=url;a.download='상상네컷_수업설정.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);message('설정 묶음을 만들었어요. 학생 촬영 사진은 포함되지 않아요.');}));
-on('bundle-input','change',safe(async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;if(file.size>70*1024*1024)throw Error('설정 파일은 70MB 이하여야 해요.');let data;try{data=JSON.parse(await file.text());}catch{throw Error('설정 파일을 읽을 수 없어요.');}const bundle=validateBundle(data);for(const bg of bundle.backgrounds)await readPhoto(bg.blob);const newLogo=bundle.logo?await readPhoto(bundle.logo):null;if(!await confirmAction('수업 설정을 가져올까요?','현재 배경과 문구, 촬영 설정을 가져온 내용으로 바꿉니다. 촬영 사진은 유지되며 편집 취소 기록은 비워집니다. 기기에 영구 저장하려면 설정 저장을 눌러 주세요.'))return;const newBackgrounds=bundle.backgrounds.map(b=>({...b,url:URL.createObjectURL(b.blob),builtIn:false}));for(const b of backgrounds.filter(x=>!x.builtIn)){forgetImage(b.url);URL.revokeObjectURL(b.url);}backgrounds.splice(0,backgrounds.length,...backgrounds.filter(x=>x.builtIn),...newBackgrounds);Object.assign(project,{count:bundle.preset.count,layout:bundle.preset.layout,frame:bundle.preset.frame,frameStyle:bundle.preset.frameStyle,caption:bundle.preset.caption,subtitle:bundle.preset.subtitle,school:bundle.preset.school,date:bundle.preset.date});project.cuts.forEach((c,i)=>c.background=bundle.preset.backgrounds[i]);Object.assign(settings,{timer:bundle.preset.timer,sound:bundle.preset.sound,mission:bundle.preset.mission,lockBackground:bundle.preset.lockBackground,customMissions:bundle.preset.customMissions});logo=newLogo;logoBlob=bundle.logo;active=Math.min(active,project.count-1);selected=null;history.clear();cleanAssets();syncFields();teacherSync();render();message('설정을 가져왔어요. 촬영 사진은 그대로 유지돼요.');}));
+on('bundle-input','change',safe(async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;if(file.size>70*1024*1024)throw Error('설정 파일은 70MB 이하여야 해요.');let data;try{data=JSON.parse(await file.text());}catch{throw Error('설정 파일을 읽을 수 없어요.');}const bundle=validateBundle(data);for(const bg of bundle.backgrounds)await readPhoto(bg.blob);const newLogo=bundle.logo?await readPhoto(bundle.logo):null;if(!await confirmAction('수업 설정을 가져올까요?','현재 배경과 문구, 촬영 설정을 가져온 내용으로 바꿉니다. 촬영 사진은 유지되며 편집 취소 기록은 비워집니다. 기기에 영구 저장하려면 설정 저장을 눌러 주세요.'))return;applyLessonSnapshot(bundle, newLogo, {replaceBackgrounds:true});message('설정을 가져왔어요. 촬영 사진은 그대로 유지돼요.');}));
 on('offline-prepare','click',safe(async()=>{if(!('serviceWorker' in navigator)){message('이 브라우저에서는 오프라인 준비를 지원하지 않아요.');return;}const button=$('offline-prepare');button.disabled=true;$('offline-status').textContent='필요한 파일을 저장하고 있어요. 인터넷 연결을 유지해 주세요.';try{const reg=await navigator.serviceWorker.register('./sw.js');const ready=await Promise.race([navigator.serviceWorker.ready,new Promise((_,reject)=>setTimeout(()=>reject(Error('오프라인 준비가 지연되고 있어요.')),20000))]);const worker=await currentOfflineWorker(reg);if(!worker)throw Error('새 버전의 오프라인 기능을 준비하지 못했어요. 잠시 후 다시 시도해 주세요.');const result=await new Promise((resolve,reject)=>{const channel=new MessageChannel();const timer=setTimeout(()=>reject(Error('파일 저장에 시간이 오래 걸려요. 다시 시도해 주세요.')),180000);channel.port1.onmessage=e=>{clearTimeout(timer);channel.port1.close();resolve(e.data);};worker.postMessage({type:'PREPARE'},[channel.port2]);});if(!result.ok)throw Error(result.message);$('offline-status').textContent='기본 배경과 모델 파일을 이 브라우저에 저장했어요. 인터넷을 끄고 미리 시험해 주세요. 직접 추가한 배경은 기기에 설정을 저장해야 유지돼요.';}catch(e){$('offline-status').textContent='오프라인 파일을 모두 저장하지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요. '+e.message;}finally{button.disabled=false;}}));
 
 let adjusting=false;
@@ -335,8 +466,14 @@ function renderFinishControls() {
     : `${remaining}컷 더 찍으면 저장할 수 있어요.`;
   $('fill-missing').hidden = complete;
   $('fill-missing').disabled = busy || running;
-  $('download').disabled = busy || running || !complete;
-  $('print-photo').disabled = busy || running || !complete;
+  $('export-options').hidden = !complete;
+  for (const id of ['download', 'download-small', 'export-view', 'print-photo']) {
+    $(id).disabled = busy || running || !complete;
+  }
+  $('export-status').hidden = !complete;
+  $('export-status').textContent = exportIsCurrent(requestedExport)
+    ? `${requestedExport.small ? '작은 PNG' : '고화질 PNG'} 저장을 요청했어요. 기기에서 파일을 확인해 주세요.`
+    : '고화질 또는 작은 PNG로 저장하거나, 이미지를 직접 열 수 있어요.';
   if (!complete) clearPaperPreview();
 }
 
@@ -393,3 +530,134 @@ function renderPaperPreview() {
 for(const id of ['print-paper','print-copies'])on(id,'change',renderPaperPreview);
 
 async function currentOfflineWorker(reg){for(let i=0;i<20;i++){const worker=reg.active;if(worker){const result=await new Promise(resolve=>{const channel=new MessageChannel(),timer=setTimeout(()=>{channel.port1.close();resolve(null);},500);channel.port1.onmessage=e=>{clearTimeout(timer);channel.port1.close();resolve(e.data);};worker.postMessage({type:'STATUS'},[channel.port2]);});if(result?.version===OFFLINE_VERSION)return worker;}await new Promise(resolve=>setTimeout(resolve,250));}return null;}
+
+function syncClassroomMode() {
+  document.body.toggleAttribute('data-classroom-mode', classroomMode);
+  $('classroom-mode-label').hidden = !classroomMode;
+  $('classroom-mode-exit').hidden = !classroomMode;
+}
+
+function changeClassroomMode(value) {
+  classroomMode = value;
+  try { localStorage.setItem(classroomModeKey, value ? 'on' : 'off'); } catch {}
+  syncClassroomMode();
+}
+
+on('classroom-mode-enter', 'click', () => {
+  changeClassroomMode(true);
+  $('teacher-dialog').close();
+  $('stage-title').focus({preventScroll:true});
+  scrollToStage();
+  message('학생용 수업 모드를 시작했어요.');
+});
+on('classroom-mode-exit', 'click', safe(async () => {
+  if (!await confirmAction('수업 모드를 종료할까요?', '교사 설정을 다시 열 수 있어요. 현재 사진은 유지됩니다.')) return;
+  changeClassroomMode(false);
+  openTeacherSettings();
+}));
+
+function updateLessonControls() {
+  const selectedLesson = $('lesson-list').value;
+  for (const id of ['lesson-name', 'lesson-save']) $(id).disabled = lessonWorking;
+  $('lesson-list').disabled = lessonWorking || !lessonNames.length;
+  $('lesson-load').disabled = lessonWorking || !selectedLesson;
+  $('lesson-delete').disabled = lessonWorking || !selectedLesson;
+}
+
+async function refreshLessons(preferred = $('lesson-list').value) {
+  lessonNames = await listLessons();
+  const list = $('lesson-list');
+  list.replaceChildren(new Option(
+    lessonNames.length ? '설정을 선택해 주세요' : '저장한 설정이 없어요', ''
+  ), ...lessonNames.map(name => new Option(name, name)));
+  if (lessonNames.includes(preferred)) list.value = preferred;
+  updateLessonControls();
+}
+
+function withLessonStorage(task) {
+  return async event => {
+    event?.preventDefault();
+    if (lessonWorking) return;
+    lessonWorking = true;
+    updateLessonControls();
+    try {
+      await task();
+    } catch (error) {
+      $('lesson-status').textContent = error.message || '기기 저장 공간을 확인해 주세요.';
+    } finally {
+      lessonWorking = false;
+      updateLessonControls();
+    }
+  };
+}
+
+function applyLessonSnapshot(saved, newLogo, {replaceBackgrounds = false} = {}) {
+  const incoming = saved.backgrounds || [];
+  const incomingIds = new Set(incoming.map(b => b.id));
+  const existing = backgrounds.filter(b => !b.builtIn);
+  const keep = replaceBackgrounds ? [] : existing.filter(b => !incomingIds.has(b.id));
+  if (keep.length + incoming.length > 20) {
+    throw Error('보관함에 배경이 너무 많아요. 배경과 로고에서 사용하지 않는 배경을 정리해 주세요.');
+  }
+  const loaded = incoming.map(b => ({...b, url: URL.createObjectURL(b.blob), builtIn:false}));
+  for (const background of existing) {
+    if (replaceBackgrounds || incomingIds.has(background.id)) {
+      forgetImage(background.url);
+      URL.revokeObjectURL(background.url);
+    }
+  }
+  backgrounds.splice(0, backgrounds.length, ...backgrounds.filter(b => b.builtIn), ...keep, ...loaded);
+  const preset = saved.preset;
+  for (const key of ['count', 'layout', 'frame', 'frameStyle', 'caption', 'subtitle', 'school', 'date']) {
+    project[key] = preset[key];
+  }
+  project.cuts.forEach((current, i) => { current.background = preset.backgrounds[i]; });
+  for (const key of ['timer', 'sound', 'mission', 'lockBackground', 'customMissions']) settings[key] = preset[key];
+  logo = newLogo;
+  logoBlob = saved.logo;
+  active = Math.min(active, project.count - 1);
+  selected = replaceTarget = null;
+  sourceMode = 'append';
+  history.clear();
+  cleanAssets();
+  teacherSync();
+  render();
+}
+
+on('lesson-list', 'change', updateLessonControls);
+on('lesson-form', 'submit', withLessonStorage(async () => {
+  const name = $('lesson-name').value.normalize('NFC').trim().replace(/\s+/g, ' ');
+  if (!name) throw Error('설정 이름을 입력해 주세요.');
+  const replace = lessonNames.includes(name);
+  if (replace && !await confirmAction('같은 이름으로 저장할까요?', `‘${name}’ 설정을 현재 값으로 바꿉니다.`)) return;
+  const preset = {...presetOf(project, settings), lockBackground: settings.lockBackground};
+  const selectedIds = new Set(preset.backgrounds);
+  const chosen = backgrounds.filter(b => !b.builtIn && selectedIds.has(b.id))
+    .map(({id, name, blob}) => ({id, name, blob}));
+  await saveLesson(name, preset, chosen, logoBlob, {replace});
+  await refreshLessons(name);
+  $('lesson-status').textContent = `‘${name}’ 설정을 이 기기에 저장했어요.`;
+}));
+
+on('lesson-load', 'click', withLessonStorage(async () => {
+  const name = $('lesson-list').value;
+  if (!name) return;
+  const saved = await getLesson(name);
+  if (!saved) {
+    await refreshLessons();
+    throw Error('선택한 수업 설정이 목록에서 없어졌어요.');
+  }
+  if (isDirty() && !await confirmAction('이 수업 설정을 적용할까요?', '현재 사진은 유지되며 배경과 꾸미기 설정이 바뀌고 실행 취소 기록은 비워져요.')) return;
+  const newLogo = saved.logo ? await readPhoto(saved.logo) : null;
+  applyLessonSnapshot(saved, newLogo);
+  $('lesson-status').textContent = `‘${name}’ 설정을 적용했어요.`;
+}));
+
+on('lesson-delete', 'click', withLessonStorage(async () => {
+  const name = $('lesson-list').value;
+  if (!name || !await confirmAction('수업 설정을 삭제할까요?', `‘${name}’ 설정을 이 기기에서 지웁니다.`)) return;
+  await deleteLesson(name);
+  await refreshLessons();
+  $('lesson-status').textContent = `‘${name}’ 설정을 삭제했어요.`;
+}));
+updateLessonControls();

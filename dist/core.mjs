@@ -7,6 +7,29 @@ export const FRAME_STYLES = ['classic', 'grid-paper', 'tape', 'paper-label'];
 export function newProject(preset={}){return {count:Number(preset.count)||4,cuts:Array.from({length:4},(_,i)=>({id:uid(),background:preset.backgrounds?.[i]||'space',adjustment:{brightness:100,contrast:100,saturation:100},fit:'cover',original:false,items:[]})),layout:preset.layout||'strip',frame:preset.frame||'#7862da',frameStyle:FRAME_STYLES.includes(preset.frameStyle)?preset.frameStyle:'classic',caption:preset.caption??'우리의 반짝이는 순간',subtitle:preset.subtitle??'함께라서 더 특별한 오늘',date:preset.date??new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul'}).format(new Date()),school:preset.school||'',logo:preset.logo||null,decorations:[]};}
 export function personItems(cut){return cut.items.filter(x=>x.kind==='person');}
 export function addItem(cut,assetId,w,h,kind='person',example=false){if(kind==='person'&&personItems(cut).length>=MAX_STICKERS)throw Error('한 컷에 인물 스티커는 3개까지 넣을 수 있어요.');const scale=Math.min(780/w,760/h,2);const item={id:uid(),assetId,kind,x:600,y:475,scale,rotation:0,border:kind==='person',softness:0.5,example};cut.items.push(item);return item;}
+export function arrangePeople(cut, assets) {
+  const people = personItems(cut);
+  if (cut.original || people.length < 2) return false;
+  const sizes = people.map(person => assets.get(person.assetId));
+  if (sizes.some(size => !size?.w || !size?.h)) return false;
+
+  const margin = 56;
+  const gap = 28;
+  const baseline = CUT_H - 78;
+  const slotWidth = (CUT_W - 2 * margin - (people.length - 1) * gap) / people.length;
+  people.forEach((person, index) => {
+    const {w, h} = sizes[index];
+    const radians = person.rotation * Math.PI / 180;
+    const sin = Math.abs(Math.sin(radians));
+    const cos = Math.abs(Math.cos(radians));
+    const rotatedWidth = cos * w + sin * h;
+    const rotatedHeight = sin * w + cos * h;
+    person.scale = Math.min(slotWidth / rotatedWidth, 680 / rotatedHeight, 2);
+    person.x = margin + index * (slotWidth + gap) + slotWidth / 2;
+    person.y = baseline - rotatedHeight * person.scale / 2;
+  });
+  return true;
+}
 export function transformPoint(item,x,y,w,h){const r=-item.rotation*Math.PI/180,dx=x-item.x,dy=y-item.y;return {x:(dx*Math.cos(r)-dy*Math.sin(r))/item.scale+w/2,y:(dx*Math.sin(r)+dy*Math.cos(r))/item.scale+h/2};}
 export function hitItem(cut,x,y,assets){for(const item of [...cut.items].reverse()){const a=assets.get(item.assetId);if(!a)continue;const p=transformPoint(item,x,y,a.w,a.h);if(p.x>=0&&p.y>=0&&p.x<=a.w&&p.y<=a.h)return item;}return null;}
 export function moveItem(item,x,y){item.x=clamp(x,0,CUT_W);item.y=clamp(y,0,CUT_H);}

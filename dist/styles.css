@@ -82,6 +82,15 @@ a { color: inherit; }
 .header-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
 .privacy-label { display: flex; align-items: center; gap: 5px; margin-right: 9px; color: var(--blue); font-size: .84rem; font-weight: 700; }
 .privacy-label svg { flex: none; }
+.classroom-mode-label { color: var(--blue); border: 1px solid #8ea9a8; background: var(--blue-paper); border-radius: 5px; padding: 5px 8px; font-size: .79rem; font-weight: 750; }
+body[data-classroom-mode] :is(#teacher-open, #demo-fill, #check-ready, #model-status) { display: none; }
+.classroom-mode-controls { margin: 12px 0; padding: 12px; background: var(--blue-paper); border-radius: 6px; }
+.classroom-mode-controls .button { margin-top: 8px; }
+.lesson-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; margin: 10px 0; }
+.lesson-actions { margin-top: 8px; }
+#export-options { width: 100%; }
+#export-status { margin-top: -5px; margin-bottom: 10px; }
+#export-image { display: block; width: auto; max-width: 100%; max-height: 58dvh; height: auto; margin: 8px auto 14px; object-fit: contain; border: 1px solid var(--line); }
 
 .button, .icon-button {
   display: inline-flex;
@@ -447,6 +456,7 @@ dialog p { margin: 8px 0; }
   .step span { width: 15px; height: 15px; }
   .sliders, .finish-options, .teacher-grid { grid-template-columns: minmax(0, 1fr); }
   .decor-row > .primary { flex: 1 1 100%; margin-left: 0; }
+  .lesson-form { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
