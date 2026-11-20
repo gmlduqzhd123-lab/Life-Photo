@@ -73,3 +73,36 @@ export function listBackgrounds(backgrounds, filter, favorites) {
   if (filter === 'custom') return backgrounds.filter(b => !b.builtIn);
   return backgrounds.filter(b => b.category === filter);
 }
+
+const keywords = new Map([
+  ['space', '별 우주선 은하 행성'],
+  ['ocean', '바다 해양 물고기 수영'],
+  ['forest', '숲 나무 자연'],
+  ['classroom', '학교 학급 교실'],
+  ['stage', '공연 발표 무대'],
+  ['party', '생일 축하 기념'],
+  ['track-finish', '운동회 운동장 달리기'],
+  ['graduation-wall', '졸업식 기념사진'],
+  ['cherry-lane', '봄 벚꽃 꽃놀이'],
+  ['snowman-village', '겨울 눈'],
+  ['aurora-field', '겨울 별 극지'],
+  ['hanok-alley', '한국 전통 여행'],
+  ['lunar-base', '우주 달 우주선 행성'],
+  ['submarine', '바다 바닷속 해양 물고기']
+]);
+
+function searchKey(value) {
+  return value.normalize('NFKC').toLowerCase().replace(/\s+/g, '');
+}
+
+export function searchBackgrounds(backgrounds, query) {
+  const key = searchKey(query);
+  if (!key) return backgrounds;
+  const words = query.normalize('NFKC').toLowerCase().trim().split(/\s+/);
+  return backgrounds.filter(background => {
+    const category = BACKGROUND_FILTERS.find(([id]) => id === (background.category || 'custom'))?.[1];
+    const terms = [background.name, background.desc, category, keywords.get(background.id)]
+      .filter(Boolean).map(searchKey);
+    return terms.some(term => term.includes(key)) || words.every(word => terms.some(term => term.includes(word)));
+  });
+}

@@ -343,7 +343,6 @@ body[data-classroom-mode] :is(#teacher-open, #demo-fill, #check-ready, #model-st
 .full-preview-section { margin-bottom: 13px; padding: 13px; background-color: var(--blue-paper); background-image: var(--grid-paper); background-size: 16px 16px; border: 1px solid #a2bbb6; border-radius: 5px; }
 .full-preview { display: grid; justify-items: center; padding: 9px; }
 .full-preview canvas { display: block; width: auto; height: auto; max-width: 100%; max-height: 48vh; object-fit: contain; border: 5px solid var(--card); box-shadow: var(--shadow); }
-.retake-list { margin: 10px 0; }
 .finish-actions { margin: 10px 0 14px; }
 .finish-options, .teacher-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .finish-options .grow { grid-column: 1 / -1; }
@@ -469,6 +468,69 @@ dialog p { margin: 8px 0; }
   #print-sheet[data-copies="4"] { grid-template-rows: repeat(2, minmax(0, 1fr)); }
   #print-sheet img { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
   @page { margin: 8mm; }
+}
+
+/* Keep the primary controls beside the photos they affect. */
+body[data-classroom-mode] .intro { display: none; }
+body[data-classroom-mode] .steps { margin-block-start: 12px; }
+body[data-classroom-mode] .classroom-mode-label { white-space: nowrap; }
+.item-picker, .finish-saving, .lesson-overview {
+  margin-block: 12px;
+  padding: 12px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--blue-paper);
+}
+.item-picker h3, .finish-saving h3, .lesson-overview h3 { margin: 0 0 7px; font-size: 1rem; }
+.item-picker .item-list {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 4px;
+  margin: 0 -4px;
+  scroll-padding-inline: 4px;
+}
+.item-picker .item-chip {
+  flex: 0 0 auto;
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  min-width: 62px;
+  padding: 4px 6px;
+  background: var(--paper);
+}
+.item-picker .item-chip[aria-pressed="true"] { background: var(--blue); color: white; }
+.item-chip canvas, .retake-person canvas {
+  width: 48px;
+  height: auto;
+  display: block;
+  border-radius: 4px;
+  background: var(--paper);
+}
+#item-transform { margin-top: 8px; }
+#item-transform .sliders { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; gap: 8px 14px; }
+.cut-tools { border-block-start: 1px dashed var(--line); margin-top: 12px; padding-top: 8px; }
+.cut-tools strong { font-size: .85rem; }
+.photo-browse { border-color: var(--blue); background: var(--blue-paper); color: var(--blue); }
+.finish-saving .finish-actions { margin-block: 8px; }
+.finish-saving > .helper { margin: 6px 0 0; }
+#finish-cuts-slot .cuts-section { padding-block: 10px; }
+.cut-retake-options { display: grid; gap: 7px; margin-block: 12px 4px; }
+.retake-person { display: flex; gap: 10px; align-items: center; justify-content: flex-start; min-width: 0; text-align: start; }
+.background-search { display: flex; flex-wrap: wrap; gap: 6px; margin: 9px 0 4px; }
+.background-search input { flex: 1 1 180px; min-width: 0; width: 100%; min-height: 44px; }
+#background-results { margin-block: 5px; }
+.lesson-overview { margin-block: 2px 12px; }
+.lesson-overview p { margin: 4px 0 0; overflow-wrap: anywhere; }
+#lesson-modified { font-weight: 700; }
+.teacher-share { margin-bottom: 10px; }
+.teacher-share:empty { display: none; }
+@media (max-width: 720px) {
+  #item-picker button:focus-visible, #item-transform input:focus-visible { scroll-margin-top: min(280px, 38svh); }
+  #export-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  #export-options #download { grid-column: 1 / -1; display: inline-flex; }
+  .full-preview canvas { max-height: 37svh; }
+  .mobile-action-bar[data-inline-save-visible]:not(:focus-within) { display: none; }
 }
 
 /* GitHub Pages sharing and installation controls. */
