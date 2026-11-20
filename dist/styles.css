@@ -240,6 +240,17 @@ a { color: inherit; }
 
 .side-panel { display: grid; gap: 14px; background: #fffbf1; border-top: 5px solid #77aab5; }
 .side-panel > * { min-width: 0; }
+.background-filter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.background-filter select { width: 100%; }
+.background-filter .button[aria-pressed="true"] { background: var(--gold); border-color: #947136; color: #4c3513; }
+#background-current { margin-bottom: 6px; }
+#background-empty { padding: 10px; border: 1px dashed var(--line); background: var(--card); }
 .background-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .background-choice { position: relative; min-width: 0; }
 .background-card {

@@ -1,20 +1,24 @@
+import {BACKGROUND_FILTERS,BUILT_IN_BACKGROUNDS,listBackgrounds} from './background-catalog.mjs?v=background-gallery';
 import {normalizeAdjustment} from './photo-adjust.mjs';
 import {paintStroke} from './brush.mjs';
-import {CUT_W,CUT_H,THEMES,MISSIONS,uid,clamp,newProject,personItems,addItem,hitItem,moveItem,History,isComplete,getPrintLayout,presetOf} from './core.mjs?v=scrapbook-flow';
+import {CUT_W,CUT_H,MISSIONS,uid,clamp,newProject,personItems,addItem,hitItem,moveItem,History,isComplete,getPrintLayout,presetOf} from './core.mjs?v=scrapbook-flow';
 import {drawCut,renderProject,loadImage,makeDecoration,forgetImage,drawPaperPreview} from './render.mjs?v=scrapbook-flow';
 import {readPhoto,makeCutout} from './image-tools.mjs';
 import {initSegmenter,segmentPhoto,resetSegmenter,setStatusListener} from './segment-client.mjs';
 import {readSaved,saveSettings,clearSaved} from './storage.mjs';
 
 const $=id=>document.getElementById(id),on=(id,event,fn)=>$(id).addEventListener(event,fn);
-const assets=new Map(),backgrounds=THEMES.map(([id,name,desc])=>({id,name,desc,url:`./assets/backgrounds/${id}.svg`,builtIn:true}));
+const assets = new Map();
+const backgrounds = [...BUILT_IN_BACKGROUNDS];
+let themeFilter = 'recommended';
+let showFavorites = false;
 let project=newProject(),active=0,selected=null,step='background',history=new History(),settings={timer:3,sound:false,mission:true,customMissions:[],lockBackground:false};
 let printUrl=null,cameraEpoch=0,busy=false,cancelEpoch=0,stream=null,facing='user',running=false,replaceTarget=null,sourceMode='append',toastTimer,logo=null,logoBlob=null,presetStatus='',renderVersion=0,previewTimer,prepared=false,downloadUrl=null,gesture=null;
 const pointers = new Map();
 const mobileLayout = matchMedia('(max-width: 720px)');
 let cameraFailed = false;
 let previewRevision = 0;
-const OFFLINE_VERSION='imagine-four-offline-v8';let favorites=new Set();try{favorites=new Set(JSON.parse(localStorage.getItem('booth-favorite-backgrounds')||'[]'));}catch{}
+const OFFLINE_VERSION='imagine-four-offline-v9';let favorites=new Set();try{favorites=new Set(JSON.parse(localStorage.getItem('booth-favorite-backgrounds')||'[]'));}catch{}
 const cut=()=>project.cuts[active],item=()=>cut().items.find(x=>x.id===selected),currentAsset=()=>item()&&assets.get(item().assetId);
 function message(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,5500);}
 function safe(fn){return async(...args)=>{try{await fn(...args);}catch(e){if(e.name!=='AbortError')message(e.message||'다시 시도해 주세요.');}};}
@@ -71,7 +75,104 @@ function fillMissingCut() {
 
 function confirmAction(title,text){return new Promise(resolve=>{$('confirm-title').textContent=title;$('confirm-message').textContent=text;const dialog=$('confirm-dialog');let done=false;const finish=value=>{if(done)return;done=true;dialog.close();$('confirm-yes').onclick=null;$('confirm-no').onclick=null;dialog.removeEventListener('cancel',cancel);resolve(value);};const cancel=e=>{e.preventDefault();finish(false);};$('confirm-yes').onclick=()=>finish(true);$('confirm-no').onclick=()=>finish(false);dialog.addEventListener('cancel',cancel);dialog.showModal();});}
 function errorChoice(text){return new Promise(resolve=>{const d=$('error-dialog');$('error-message').textContent=text;let done=false;const finish=value=>{if(done)return;done=true;d.close();d.removeEventListener('cancel',cancel);resolve(value);};const cancel=e=>{e.preventDefault();finish('cancel');};$('error-retry').onclick=()=>finish('retry');$('error-original').onclick=()=>finish('original');$('error-cancel').onclick=()=>finish('cancel');d.addEventListener('cancel',cancel);d.showModal();});}
-function renderBackgrounds(){const root=$('background-grid');const focusId=root.contains(document.activeElement)?document.activeElement.dataset.backgroundControl:null;root.replaceChildren();for(const b of [...backgrounds].sort((a,b)=>Number(favorites.has(b.id))-Number(favorites.has(a.id)))){const card=document.createElement('div');card.className='background-choice';const button=document.createElement('button');button.className='background-card'+(cut().background===b.id?' active':'');button.type='button';button.dataset.backgroundControl='pick:'+b.id;button.setAttribute('aria-label',`${b.name} 배경 선택`);button.setAttribute('aria-pressed',String(cut().background===b.id));button.disabled=busy||settings.lockBackground;const wrap=document.createElement('span');wrap.className='image-wrap';const image=document.createElement('img');image.src=b.url;image.alt='';wrap.append(image);const title=document.createElement('strong');title.textContent=b.name;button.append(wrap,title);button.onclick=()=>mutate(()=>{const targets=$('all-backgrounds').checked?project.cuts:[cut()];for(const c of targets)c.background=b.id;});card.append(button);const star=document.createElement('button');star.type='button';star.dataset.backgroundControl='favorite:'+b.id;star.className='favorite-toggle';star.textContent=favorites.has(b.id)?'★':'☆';star.setAttribute('aria-label',`${b.name} 즐겨찾기`);star.setAttribute('aria-pressed',String(favorites.has(b.id)));star.disabled=busy;star.onclick=()=>{if(favorites.has(b.id))favorites.delete(b.id);else favorites.add(b.id);try{localStorage.setItem('booth-favorite-backgrounds',JSON.stringify([...favorites]));}catch{message('즐겨찾기는 이번 사용 중에만 유지돼요.');}renderBackgrounds();};card.append(star);root.append(card);}$('background-count').textContent=`${backgrounds.length}가지 배경`;$('background-fit').value=cut().fit;if(focusId){[...root.querySelectorAll('button')].find(b=>b.dataset.backgroundControl===focusId)?.focus({preventScroll:true});}}
+function chooseBackground(background) {
+  mutate(() => {
+    const targets = $('all-backgrounds').checked ? project.cuts : [cut()];
+    for (const current of targets) current.background = background.id;
+  });
+}
+
+function toggleBackgroundFavorite(id) {
+  if (favorites.has(id)) favorites.delete(id);
+  else favorites.add(id);
+  try {
+    localStorage.setItem('booth-favorite-backgrounds', JSON.stringify([...favorites]));
+  } catch {
+    message('즐겨찾기는 이번 사용 중에만 유지돼요.');
+  }
+  renderBackgrounds();
+}
+
+function backgroundCard(background) {
+  const current = cut().background === background.id;
+  const card = document.createElement('div');
+  card.className = 'background-choice';
+  const pick = document.createElement('button');
+  pick.type = 'button';
+  pick.className = 'background-card' + (current ? ' active' : '');
+  pick.dataset.backgroundControl = 'pick:' + background.id;
+  pick.setAttribute('aria-label', `${background.name} 배경 선택`);
+  pick.setAttribute('aria-pressed', String(current));
+  pick.disabled = busy || running || settings.lockBackground;
+  pick.onclick = () => chooseBackground(background);
+
+  const wrap = document.createElement('span');
+  wrap.className = 'image-wrap';
+  const image = document.createElement('img');
+  image.src = background.url;
+  image.alt = '';
+  image.loading = 'lazy';
+  image.decoding = 'async';
+  wrap.append(image);
+  const title = document.createElement('strong');
+  title.textContent = background.name;
+  pick.append(wrap, title);
+
+  const starred = favorites.has(background.id);
+  const star = document.createElement('button');
+  star.type = 'button';
+  star.className = 'favorite-toggle';
+  star.dataset.backgroundControl = 'favorite:' + background.id;
+  star.textContent = starred ? '★' : '☆';
+  star.setAttribute('aria-label', `${background.name} 즐겨찾기`);
+  star.setAttribute('aria-pressed', String(starred));
+  star.disabled = busy || running || settings.lockBackground;
+  star.onclick = () => toggleBackgroundFavorite(background.id);
+  card.append(pick, star);
+  return card;
+}
+
+function renderBackgrounds() {
+  const grid = $('background-grid');
+  const focusId = grid.contains(document.activeElement) ? document.activeElement.dataset.backgroundControl : null;
+  const choices = listBackgrounds(backgrounds, showFavorites ? 'favorites' : themeFilter, favorites);
+  grid.replaceChildren(...choices.map(backgroundCard));
+  const favoriteFilter = $('background-favorites');
+  favoriteFilter.setAttribute('aria-pressed', String(showFavorites));
+  $('background-theme').value = themeFilter;
+  $('background-count').textContent = `${backgrounds.length}가지 배경`;
+  const current = backgrounds.find(b => b.id === cut().background);
+  $('background-current').textContent = `현재 배경 · ${current?.name || '우주 탐험'}`;
+  $('background-fit').value = cut().fit;
+
+  const empty = $('background-empty');
+  empty.hidden = choices.length > 0;
+  empty.textContent = showFavorites
+    ? '자주 쓰는 배경의 별을 누르면 여기에 모여요.'
+    : '교사 설정에서 배경을 추가할 수 있어요.';
+  if (focusId) {
+    const movedFocus = [...grid.querySelectorAll('button')].find(b => b.dataset.backgroundControl === focusId);
+    (movedFocus || favoriteFilter).focus({preventScroll: true});
+  }
+}
+
+function updateBackgroundFilter() {
+  $('background-grid').scrollLeft = 0;
+  renderBackgrounds();
+}
+
+const themePicker = $('background-theme');
+themePicker.replaceChildren(...BACKGROUND_FILTERS.map(([id, title]) => new Option(title, id)));
+on('background-theme', 'change', () => {
+  themeFilter = themePicker.value;
+  showFavorites = false;
+  updateBackgroundFilter();
+});
+on('background-favorites', 'click', () => {
+  showFavorites = !showFavorites;
+  updateBackgroundFilter();
+});
+
 async function render(){syncFields();placeBackgroundPicker();const version=++renderVersion;document.getElementById("full-preview-section").hidden=step!=='finish';const stageTitles={background:'상상 속으로 떠나볼까요',camera:'우리의 순간을 담아요',edit:'스티커처럼 자유롭게',finish:isComplete(project)?'반짝이는 사진을 완성했어요':'촬영 진행 상태를 확인해요'};$('cut-label').textContent=`${active+1}번째 컷`;$('stage-title').textContent=stageTitles[step];$('camera-guide').textContent=`${active+1}번째 컷을 찍어요. 카메라를 보고 포즈를 취해요.`;$('next-cut').textContent=active+1<(project.count||4)?`${active+2}번째 컷 만들기`:'전체 사진 확인하기';$('finish-example').hidden=!project.cuts.slice(0,project.count||4).some(c=>c.items.some(i=>i.example));renderRetakes();document.querySelectorAll('[data-step]').forEach(b=>{const is=b.dataset.step===step;b.classList.toggle('active',is);if(is)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current');});for(const s of ['background','camera','edit','finish'])$(`${s}-tools`).hidden=s!==step;$('scene-background').textContent=backgrounds.find(b=>b.id===cut().background)?.name||'나만의 배경';$('example-tag').hidden=!cut().items.some(i=>i.example);$('scene-tip').textContent=step==='camera'?'촬영 후 인물만 오려서 붙여요':step==='edit'?'스티커를 누르고 움직여 보세요':'사진 속 우리를 이 배경에 붙여요';$('scene-tip').hidden=busy||step==='finish';$('mission').textContent=settings.customMissions[active]||MISSIONS[active];$('mission').hidden=!settings.mission;renderBackgrounds();renderCutButtons();renderControls();renderItemControls();await drawCut($('scene'),cut(),assets,backgrounds,{selected,placeholder:true});if(version!==renderVersion)return;if(step==='finish')schedulePreview();}
 function renderCutButtons() {
   const root = $('cut-grid');
@@ -115,7 +216,7 @@ function renderCutButtons() {
 }
 
 function renderControls(){
- document.querySelectorAll('#cut-grid button').forEach(b=>b.disabled=busy||running);document.querySelectorAll('#background-grid button').forEach(b=>b.disabled=busy||running||settings.lockBackground);document.getElementById("all-backgrounds").disabled=busy||running||settings.lockBackground;$('undo').disabled=busy||running||!history.past.length;$('redo').disabled=busy||running||!history.future.length;renderFinishControls();$('capture').textContent=`${settings.timer}초 후 촬영`;$('auto-capture').textContent=`${project.count||4}컷 연속 촬영`;$('capture').disabled=!stream||busy||running;$('start-camera').hidden=!!stream;$('stop-camera').hidden=!stream;$('switch-camera').disabled=!stream||busy||running;$('auto-capture').disabled=!stream||busy||running;$('stop-capture').hidden=!running;$('photo-input').disabled=busy||running;$('photo-browse').disabled=busy||running;for(const id of ['go-camera','demo-fill','teacher-open','add-person','retake','clear-cut','next-cut','show-finish','new-group'])$(id).disabled=busy||running;document.querySelectorAll('[data-step]').forEach(b=>b.disabled=busy||running);$('toggle-original').disabled=busy||!personItems(cut()).length;$('toggle-original').textContent=cut().original?'스티커로 돌아가기':'원본 보기';$('background-fit').disabled=busy||settings.lockBackground;$('scene').setAttribute('aria-busy',String(busy));updateMobileAction();}
+ document.querySelectorAll('#cut-grid button').forEach(b=>b.disabled=busy||running);document.querySelectorAll('#background-grid button').forEach(b=>b.disabled=busy||running||settings.lockBackground);document.getElementById("all-backgrounds").disabled=busy||running||settings.lockBackground;$('undo').disabled=busy||running||!history.past.length;$('redo').disabled=busy||running||!history.future.length;renderFinishControls();$('capture').textContent=`${settings.timer}초 후 촬영`;$('auto-capture').textContent=`${project.count||4}컷 연속 촬영`;$('capture').disabled=!stream||busy||running;$('start-camera').hidden=!!stream;$('stop-camera').hidden=!stream;$('switch-camera').disabled=!stream||busy||running;$('auto-capture').disabled=!stream||busy||running;$('stop-capture').hidden=!running;$('photo-input').disabled=busy||running;$('photo-browse').disabled=busy||running;for(const id of ['go-camera','demo-fill','teacher-open','add-person','retake','clear-cut','next-cut','show-finish','new-group'])$(id).disabled=busy||running;document.querySelectorAll('[data-step]').forEach(b=>b.disabled=busy||running);$('toggle-original').disabled=busy||!personItems(cut()).length;$('toggle-original').textContent=cut().original?'스티커로 돌아가기':'원본 보기';$('background-fit').disabled=busy||settings.lockBackground;$('background-theme').disabled=busy||running;$('background-favorites').disabled=busy||running;$('scene').setAttribute('aria-busy',String(busy));updateMobileAction();}
 function renderItemControls(){const adjustment=normalizeAdjustment(cut().adjustment);for(const name of ['brightness','contrast','saturation']){const control=$(`adjust-${name}`);control.value=adjustment[name];control.disabled=busy||!personItems(cut()).length;$(name+'-value').textContent=adjustment[name]+'%';}$('adjust-reset').disabled=busy||!personItems(cut()).length;const it=item(),a=currentAsset();$('selected-tools').hidden=!it||cut().original;for(const id of ['item-front','item-back','item-center','item-duplicate','item-copy','item-delete','item-size','item-rotation','item-border','item-softness'])$(id).disabled=busy||!it;$('item-softness').disabled=busy||!a?.mask;if(it){$('item-size').value=Math.round(it.scale*100);$('item-rotation').value=it.rotation;$('item-softness').value=Math.round(it.softness*100);$('item-border').checked=it.border;}$('retake').disabled=busy||!personItems(cut()).length;$('brush-open').disabled=busy||!a?.mask;const list=$('item-list');list.replaceChildren();cut().items.forEach((it,i)=>{const b=document.createElement('button');b.className='item-chip'+(selected===it.id?' active':'');b.textContent=it.kind==='person'?`${it.example?'예시':'인물'} ${cut().items.slice(0,i+1).filter(x=>x.kind==='person').length}`:`장식 ${i+1}`;b.disabled=busy;b.onclick=()=>{selected=it.id;render();};list.append(b);});}
 function schedulePreview() {
   clearTimeout(previewTimer);
@@ -182,7 +283,7 @@ on('teacher-open','click',()=>{teacherSync();$('teacher-dialog').showModal();ref
 on('cut-count','change',safe(async e=>{const n=Number(e.target.value);if(n<(project.count||4)&&project.cuts.slice(n,project.count).some(c=>c.items.length)){if(!await confirmAction('컷 수를 줄일까요?','화면에 보이지 않는 컷은 유지되며 컷 수를 다시 늘리면 돌아옵니다.')){e.target.value=project.count;return;}}mutate(()=>{project.count=n;active=Math.min(active,n-1);selected=null;});}));
 on('timer','change',e=>{settings.timer=Number(e.target.value);renderControls();});on('sound','change',e=>settings.sound=e.target.checked);on('mission-on','change',e=>{settings.mission=e.target.checked;render();});on('lock-background','change',e=>{settings.lockBackground=e.target.checked;render();});on('custom-missions','change',e=>{settings.customMissions=e.target.value.split('\n').map(x=>x.trim().slice(0,60)).filter(Boolean).slice(0,4);render();});
 function renderCustomBackgrounds(){const root=$('custom-background-list');root.replaceChildren();for(const b of backgrounds.filter(x=>!x.builtIn)){const div=document.createElement('div'),img=document.createElement('img'),span=document.createElement('span'),del=document.createElement('button');img.src=b.url;img.alt='';span.textContent=b.name;del.textContent='×';del.setAttribute('aria-label',`${b.name} 배경 삭제`);del.onclick=()=>{mutate(()=>{project.cuts.forEach(c=>{if(c.background===b.id)c.background='space';});backgrounds.splice(backgrounds.indexOf(b),1);forgetImage(b.url);URL.revokeObjectURL(b.url);});renderCustomBackgrounds();};div.append(img,span,del);root.append(div);}}
-on('background-input','change',safe(async e=>{const files=[...e.target.files];e.target.value='';for(const file of files){if(backgrounds.filter(b=>!b.builtIn).length>=20)throw Error('나만의 배경은 20개까지 추가할 수 있어요.');await readPhoto(file);const id='custom-'+uid(),b={id,name:file.name.replace(/\.[^.]+$/,'').slice(0,24),url:URL.createObjectURL(file),blob:file,builtIn:false};backgrounds.push(b);}renderCustomBackgrounds();render();message('배경을 추가했어요. 기기에 보관하려면 설정 저장을 눌러 주세요.');}));
+on('background-input','change',safe(async e=>{const files=[...e.target.files];e.target.value='';for(const file of files){if(backgrounds.filter(b=>!b.builtIn).length>=20)throw Error('나만의 배경은 20개까지 추가할 수 있어요.');await readPhoto(file);const id='custom-'+uid(),b={id,name:file.name.replace(/\.[^.]+$/,'').slice(0,24),url:URL.createObjectURL(file),blob:file,builtIn:false};backgrounds.push(b);}if(files.length){themeFilter='custom';showFavorites=false;}renderCustomBackgrounds();render();message('배경을 추가했어요. 기기에 보관하려면 설정 저장을 눌러 주세요.');}));
 on('logo-input','change',safe(async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;logo=await readPhoto(file);logoBlob=file;$('logo-status').textContent='로고가 준비됐어요. 네컷 완성 화면에서 확인해 주세요.';schedulePreview();}));on('remove-logo','click',()=>{logo=null;logoBlob=null;$('logo-status').textContent='로고를 지웠어요.';schedulePreview();});
 on('save-preset','click',safe(async()=>{try{await saveSettings({...presetOf(project,settings),lockBackground:settings.lockBackground},backgrounds.filter(b=>!b.builtIn).map(({id,name,blob})=>({id,name,blob})),logoBlob);presetStatus='이 기기에 배경과 설정을 저장했어요. 학생 사진은 저장하지 않았어요.';}catch(e){presetStatus='기기에 저장하지 못했어요. 이번 사용 중에는 계속 쓸 수 있어요. '+e.message;}$('preset-status').textContent=presetStatus;}));
 on('delete-preset','click',safe(async()=>{if(!await confirmAction('기기에 저장한 준비 내용을 지울까요?','저장한 배경·문구·촬영 설정·로고를 삭제해요. 현재 진행 중인 사진은 유지돼요.'))return;await clearSaved();presetStatus='기기에 저장한 내용을 삭제했어요. 이번 사용 중인 설정은 유지돼요.';$('preset-status').textContent=presetStatus;}));
@@ -208,7 +309,7 @@ const readinessActions={
 };
 function goToReadinessTarget(target){$('ready-dialog').close();if(target==='camera'){setStep('camera');$('start-camera').focus();}else if(target==='model'){$('model-status').focus();$('model-status').scrollIntoView({block:'center'});}else if(target==='offline'||target==='background'){teacherSync();const section=$(target==='offline'?'teacher-preparation':'teacher-background');section.open=true;$('teacher-dialog').showModal();const destination=$(target==='offline'?'offline-prepare':'background-input');const focusTarget=target==='background'?section.querySelector('summary'):destination;section.scrollIntoView({block:'start'});if(focusTarget?.focus)focusTarget.focus();}}
 on('check-ready','click',safe(async()=>{$('ready-dialog').showModal();$('ready-summary').textContent='준비 상태를 확인하고 있어요.';$('ready-list').textContent='확인 중...';const b=backgrounds.find(x=>x.id===cut().background);const checks=await checkReadiness(b?.url||'./assets/backgrounds/space.svg',prepared,import.meta.url);const offline=await offlineState();checks.push(['오프라인 준비',offline.prepared]);if(navigator.storage?.estimate){try{const estimate=await navigator.storage.estimate();if(Number.isFinite(estimate.quota)&&Number.isFinite(estimate.usage))checks.push(['저장 공간',estimate.quota-estimate.usage>30*1024*1024]);}catch{}}$('ready-summary').textContent=checks.every(([name,ok])=>ok||name==='오프라인 준비')?'기본 준비 항목을 확인했어요. 카메라는 직접 시험해 주세요.':'일부 항목을 확인해 주세요. 오프라인 준비는 선택 사항입니다.';const list=document.createElement('ul');for(const [name,ok] of checks){const li=document.createElement('li');const status=document.createElement('span');status.textContent=ok?(name==='카메라 기능'?'✓ 브라우저 기능 지원 · 카메라 (실제 영상 확인 필요)':name==='저장 공간'?'✓ 여유 공간 추정 · 저장 공간 (실제 저장은 별도 확인)':'✓ 확인됨 · '+name):'확인 필요 · '+name;li.append(status);if(!ok){const action=readinessActions[name];if(action){const hint=document.createElement('p');hint.textContent=action.hint;li.append(hint);if(action.target){const button=document.createElement('button');button.type='button';button.className='button compact';button.textContent=action.label;button.onclick=()=>goToReadinessTarget(action.target);li.append(button);}}}list.append(li);}$('ready-list').replaceChildren(list);}));
-import {createBundle,validateBundle} from './preset-bundle.mjs?v=scrapbook-flow';
+import {createBundle,validateBundle} from './preset-bundle.mjs?v=background-gallery';
 on('bundle-export','click',safe(async()=>{const b=await createBundle({...presetOf(project,settings),lockBackground:settings.lockBackground},backgrounds.filter(x=>!x.builtIn),logoBlob);const url=URL.createObjectURL(b),a=document.createElement('a');a.href=url;a.download='상상네컷_수업설정.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);message('설정 묶음을 만들었어요. 학생 촬영 사진은 포함되지 않아요.');}));
 on('bundle-input','change',safe(async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;if(file.size>70*1024*1024)throw Error('설정 파일은 70MB 이하여야 해요.');let data;try{data=JSON.parse(await file.text());}catch{throw Error('설정 파일을 읽을 수 없어요.');}const bundle=validateBundle(data);for(const bg of bundle.backgrounds)await readPhoto(bg.blob);const newLogo=bundle.logo?await readPhoto(bundle.logo):null;if(!await confirmAction('수업 설정을 가져올까요?','현재 배경과 문구, 촬영 설정을 가져온 내용으로 바꿉니다. 촬영 사진은 유지되며 편집 취소 기록은 비워집니다. 기기에 영구 저장하려면 설정 저장을 눌러 주세요.'))return;const newBackgrounds=bundle.backgrounds.map(b=>({...b,url:URL.createObjectURL(b.blob),builtIn:false}));for(const b of backgrounds.filter(x=>!x.builtIn)){forgetImage(b.url);URL.revokeObjectURL(b.url);}backgrounds.splice(0,backgrounds.length,...backgrounds.filter(x=>x.builtIn),...newBackgrounds);Object.assign(project,{count:bundle.preset.count,layout:bundle.preset.layout,frame:bundle.preset.frame,frameStyle:bundle.preset.frameStyle,caption:bundle.preset.caption,subtitle:bundle.preset.subtitle,school:bundle.preset.school,date:bundle.preset.date});project.cuts.forEach((c,i)=>c.background=bundle.preset.backgrounds[i]);Object.assign(settings,{timer:bundle.preset.timer,sound:bundle.preset.sound,mission:bundle.preset.mission,lockBackground:bundle.preset.lockBackground,customMissions:bundle.preset.customMissions});logo=newLogo;logoBlob=bundle.logo;active=Math.min(active,project.count-1);selected=null;history.clear();cleanAssets();syncFields();teacherSync();render();message('설정을 가져왔어요. 촬영 사진은 그대로 유지돼요.');}));
 on('offline-prepare','click',safe(async()=>{if(!('serviceWorker' in navigator)){message('이 브라우저에서는 오프라인 준비를 지원하지 않아요.');return;}const button=$('offline-prepare');button.disabled=true;$('offline-status').textContent='필요한 파일을 저장하고 있어요. 인터넷 연결을 유지해 주세요.';try{const reg=await navigator.serviceWorker.register('./sw.js');const ready=await Promise.race([navigator.serviceWorker.ready,new Promise((_,reject)=>setTimeout(()=>reject(Error('오프라인 준비가 지연되고 있어요.')),20000))]);const worker=await currentOfflineWorker(reg);if(!worker)throw Error('새 버전의 오프라인 기능을 준비하지 못했어요. 잠시 후 다시 시도해 주세요.');const result=await new Promise((resolve,reject)=>{const channel=new MessageChannel();const timer=setTimeout(()=>reject(Error('파일 저장에 시간이 오래 걸려요. 다시 시도해 주세요.')),180000);channel.port1.onmessage=e=>{clearTimeout(timer);channel.port1.close();resolve(e.data);};worker.postMessage({type:'PREPARE'},[channel.port2]);});if(!result.ok)throw Error(result.message);$('offline-status').textContent='기본 배경과 모델 파일을 이 브라우저에 저장했어요. 인터넷을 끄고 미리 시험해 주세요. 직접 추가한 배경은 기기에 설정을 저장해야 유지돼요.';}catch(e){$('offline-status').textContent='오프라인 파일을 모두 저장하지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요. '+e.message;}finally{button.disabled=false;}}));

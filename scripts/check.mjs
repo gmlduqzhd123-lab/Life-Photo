@@ -1,13 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
+import {BUILT_IN_BACKGROUNDS} from '../dist/background-catalog.mjs';
 const root=path.resolve('dist');
 const html=fs.readFileSync(path.join(root,'index.html'),'utf8'),app=fs.readFileSync(path.join(root,'app.mjs'),'utf8');
 const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(x=>x[1]);
 if(new Set(ids).size!==ids.length)throw Error('Duplicate element IDs');
 for(const [,id]of app.matchAll(/(?:\$|on)\('([\w-]+)'/g))if(!ids.includes(id))throw Error('Missing element: '+id);
 for(const file of fs.readdirSync(root).filter(x=>/\.(mjs|js)$/.test(x)))execFileSync(process.execPath,['--check',path.join(root,file)]);
-for(const file of ['space','ocean','forest','dinosaur','clouds','stage','classroom','party'])if(!fs.existsSync(path.join(root,'assets/backgrounds',file+'.svg')))throw Error('Missing background: '+file);
+for(const background of BUILT_IN_BACKGROUNDS)if(!fs.existsSync(path.join(root,background.url)))throw Error('Missing background: '+background.id);
 for(const file of ['vendor/mediapipe/vision_bundle.js','vendor/models/selfie_segmenter.tflite','vendor/mediapipe/wasm/vision_wasm_internal.wasm'])if(!fs.existsSync(path.join(root,file)))throw Error('Missing inference asset: '+file);
 if(/https?:\/\//.test(app))throw Error('Unexpected external URL in photo processing');
-console.log('Syntax, UI references, 8 backgrounds and local inference assets: PASS');
+console.log(`Syntax, UI references, ${BUILT_IN_BACKGROUNDS.length} backgrounds and local inference assets: PASS`);
