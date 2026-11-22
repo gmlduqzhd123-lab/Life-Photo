@@ -538,4 +538,3 @@ body[data-classroom-mode] .classroom-mode-label { white-space: nowrap; }
 html .ysi-card, html .yq-card { background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-top: 6px solid var(--clay); border-radius: 8px; }
 html .ysi-primary, html .yq-card .yq-close { background: var(--clay); color: #fffaf1; }
 @media (max-width: 720px) { .ys-wide { display: none; } }
-
