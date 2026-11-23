@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {newProject,addItem,arrangePeople,personItems,History,exportSpec,getPrintLayout,presetOf,hitItem,moveItem,isComplete} from '../dist/core.mjs';
+import {newProject,addItem,arrangePeople,personItems,History,exportSpec,getPrintLayout,presetOf,hitItem,moveItem,isComplete,nextEmptyCut} from '../dist/core.mjs';
 test('deleting a middle cut preserves every other cut identity and content',()=>{const p=newProject(),ids=p.cuts.map(c=>c.id);p.cuts.forEach((c,i)=>addItem(c,'photo'+i,400,600));p.cuts[1].items=[];assert.deepEqual(p.cuts.map(c=>c.id),ids);assert.equal(p.cuts[2].items[0].assetId,'photo2');assert.equal(isComplete(p),false);});
 test('person limit applies to people rather than decorative items',()=>{const c=newProject().cuts[0];for(let i=0;i<8;i++)addItem(c,'heart',180,180,'decoration');for(let i=0;i<3;i++)addItem(c,'person',500,600);assert.equal(personItems(c).length,3);assert.throws(()=>addItem(c,'extra',500,600),/3개/);});
 test('history restores replacement, position and deletion without sharing references',()=>{let p=newProject();const h=new History();h.record(p);addItem(p.cuts[0],'first',400,600);h.record(p);p.cuts[0].items[0].assetId='replacement';p=h.undo(p);assert.equal(p.cuts[0].items[0].assetId,'first');p=h.redo(p);assert.equal(p.cuts[0].items[0].assetId,'replacement');h.clear();assert.equal(h.past.length+h.future.length,0);});
@@ -53,4 +53,16 @@ test('arranging two or three people fits rotated photos without moving decoratio
       previousRight = person.x + halfWidth;
     }
   }
+});
+
+test('next empty cut respects the current selection, wraps around and ignores hidden cuts', () => {
+  const project = newProject({count:3});
+  const [first, second, third] = project.cuts;
+  addItem(second, 'second', 300, 400);
+  assert.equal(nextEmptyCut(project, 1), 2);
+  assert.equal(nextEmptyCut(project, 2), 2);
+  addItem(third, 'third', 300, 400);
+  assert.equal(nextEmptyCut(project, 2), 0);
+  addItem(first, 'first', 300, 400);
+  assert.equal(nextEmptyCut(project, 2), -1);
 });
