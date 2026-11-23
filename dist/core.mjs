@@ -34,14 +34,20 @@ export function arrangePeople(cut, assets) {
 export function transformPoint(item,x,y,w,h){const r=-item.rotation*Math.PI/180,dx=x-item.x,dy=y-item.y;return {x:(dx*Math.cos(r)-dy*Math.sin(r))/item.scale+w/2,y:(dx*Math.sin(r)+dy*Math.cos(r))/item.scale+h/2};}
 export function hitItem(cut,x,y,assets){for(const item of [...cut.items].reverse()){const a=assets.get(item.assetId);if(!a)continue;const p=transformPoint(item,x,y,a.w,a.h);if(p.x>=0&&p.y>=0&&p.x<=a.w&&p.y<=a.h)return item;}return null;}
 export function moveItem(item,x,y){item.x=clamp(x,0,CUT_W);item.y=clamp(y,0,CUT_H);}
-export function exportSpec(layout,count=4){count=clamp(Number(count)||4,2,4);if(layout==='grid'){const rows=Math.ceil(count/2),h=120+rows*900+(rows-1)*80+480;return{w:2800,h,cells:Array.from({length:count},(_,i)=>({x:count%2&&i===count-1?800:180+(i%2)*1240,y:120+Math.floor(i/2)*980,w:1200,h:900})),footerY:120+rows*900+(rows-1)*80+50};}const h=120+count*900+(count-1)*40+560;return{w:1440,h,cells:Array.from({length:count},(_,i)=>({x:120,y:120+i*940,w:1200,h:900})),footerY:120+count*900+(count-1)*40+80};}
+export function exportSpec(layout,count=4){count=clamp(Number(count)||4,1,4);if(layout==='grid'){const rows=Math.ceil(count/2),h=120+rows*900+(rows-1)*80+480;return{w:2800,h,cells:Array.from({length:count},(_,i)=>({x:count%2&&i===count-1?800:180+(i%2)*1240,y:120+Math.floor(i/2)*980,w:1200,h:900})),footerY:120+rows*900+(rows-1)*80+50};}const h=120+count*900+(count-1)*40+560;return{w:1440,h,cells:Array.from({length:count},(_,i)=>({x:120,y:120+i*940,w:1200,h:900})),footerY:120+count*900+(count-1)*40+80};}
 export class History{constructor(limit=20){this.limit=limit;this.past=[];this.future=[];}record(state){this.past.push(structuredClone(state));if(this.past.length>this.limit)this.past.shift();this.future=[];}undo(current){if(!this.past.length)return current;this.future.push(structuredClone(current));return this.past.pop();}redo(current){if(!this.future.length)return current;this.past.push(structuredClone(current));return this.future.pop();}clear(){this.past=[];this.future=[];}}
 export const isComplete=state=>state.cuts.slice(0,state.count||4).every(c=>personItems(c).length>0);
+export function photographedProject(state) {
+  const cuts = state.cuts.slice(0, state.count || 4).filter(current => personItems(current).length);
+  return {...state, cuts, count: cuts.length};
+}
+
 export function presetOf(state,settings){return {count:state.count||4,backgrounds:state.cuts.map(c=>c.background),layout:state.layout,frame:state.frame,frameStyle:state.frameStyle,caption:state.caption,subtitle:state.subtitle,school:state.school,date:state.date,timer:settings.timer,sound:settings.sound,mission:settings.mission,customMissions:settings.customMissions};}
 
 const PAPER_SIZES = new Map([
   ['A4', {cssSize: 'A4', width: 210, height: 297}],
   ['A6', {cssSize: 'A6', width: 105, height: 148}],
+  ['photo-4x6', {cssSize: '4in 6in', label: '4×6인치 사진용지', width: 101.6, height: 152.4}],
   ['letter', {cssSize: 'Letter', width: 215.9, height: 279.4}]
 ]);
 
@@ -63,12 +69,13 @@ export function getPrintLayout(size, count) {
   return {...paper, copies, margin, gap, cells};
 }
 
-// Search forward through the visible cuts, then wrap to any earlier empty cut.
-export function nextEmptyCut(project, active) {
+// Read cut slots from the current position, wrapping without using hidden cuts.
+export function emptyCutIndices(project, active) {
   const cuts = project.cuts.slice(0, project.count || 4);
-  for (let offset = 0; offset < cuts.length; offset++) {
-    const index = (active + offset) % cuts.length;
-    if (!personItems(cuts[index]).length) return index;
-  }
-  return -1;
+  return cuts.map((_, offset) => (active + offset) % cuts.length)
+    .filter(index => !personItems(cuts[index]).length);
+}
+
+export function nextEmptyCut(project, active) {
+  return emptyCutIndices(project, active)[0] ?? -1;
 }

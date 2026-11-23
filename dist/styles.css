@@ -574,6 +574,57 @@ body[data-classroom-mode] .classroom-mode-label { white-space: nowrap; }
 @media (max-width: 720px) {
   #mobile-background-slot:has(#background-section) { margin-bottom: 10px; }
 }
+.background-scope {
+  flex: 1 0 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  margin: 3px 0;
+  border: none;
+}
+.background-scope legend, .import-mode legend { font-weight: 700; color: var(--blue); }
+.background-scope label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+}
+.background-scope label:has(input:checked) { background: var(--blue-paper); border-color: var(--blue); }
+.background-applied { flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.background-applied span, .person-count { color: var(--blue); font-weight: 700; font-size: .9rem; }
+#handoff-dialog > .check { margin-block: 7px; }
+#import-list { display: grid; gap: 8px; }
+#import-list .import-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0,1fr);
+  gap: 5px 8px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+.import-row img { width: 52px; height: 44px; object-fit: cover; background: var(--blue-paper); border-radius: 4px; }
+.import-row .note { display: block; }
+.import-actions { grid-column: 2; display: flex; flex-wrap: wrap; gap: 4px; }
+.import-mode { margin-block: 10px; min-width: 0; border: 1px solid var(--line); border-radius: 6px; }
+#import-person-options { display: flex; flex-wrap: wrap; gap: 6px; }
+#import-person-options label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+#import-person-options label:has(input:checked) { background: var(--blue-paper); border-color: var(--blue); }
+#import-person-options canvas { width: 40px; height: 30px; background: var(--paper); border-radius: 4px; }
 
 /* GitHub Pages sharing and installation controls. */
 .ys-credit { flex-basis: 100%; margin: 0; text-align: center; }

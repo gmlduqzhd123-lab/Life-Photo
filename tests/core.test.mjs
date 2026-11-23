@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {newProject,addItem,arrangePeople,personItems,History,exportSpec,getPrintLayout,presetOf,hitItem,moveItem,isComplete,nextEmptyCut} from '../dist/core.mjs';
+import {newProject,addItem,arrangePeople,personItems,History,exportSpec,getPrintLayout,presetOf,hitItem,moveItem,isComplete,nextEmptyCut,emptyCutIndices,photographedProject} from '../dist/core.mjs';
+import {createPrintPdf} from '../dist/print-pdf.mjs';
 test('deleting a middle cut preserves every other cut identity and content',()=>{const p=newProject(),ids=p.cuts.map(c=>c.id);p.cuts.forEach((c,i)=>addItem(c,'photo'+i,400,600));p.cuts[1].items=[];assert.deepEqual(p.cuts.map(c=>c.id),ids);assert.equal(p.cuts[2].items[0].assetId,'photo2');assert.equal(isComplete(p),false);});
 test('person limit applies to people rather than decorative items',()=>{const c=newProject().cuts[0];for(let i=0;i<8;i++)addItem(c,'heart',180,180,'decoration');for(let i=0;i<3;i++)addItem(c,'person',500,600);assert.equal(personItems(c).length,3);assert.throws(()=>addItem(c,'extra',500,600),/3개/);});
 test('history restores replacement, position and deletion without sharing references',()=>{let p=newProject();const h=new History();h.record(p);addItem(p.cuts[0],'first',400,600);h.record(p);p.cuts[0].items[0].assetId='replacement';p=h.undo(p);assert.equal(p.cuts[0].items[0].assetId,'first');p=h.redo(p);assert.equal(p.cuts[0].items[0].assetId,'replacement');h.clear();assert.equal(h.past.length+h.future.length,0);});
@@ -11,7 +12,7 @@ test('rotated and scaled stickers can be selected; movements remain recoverable'
 test('two and three cuts export all selected slots and ignore hidden slots',()=>{for(const count of [2,3]){const p=newProject({count});for(let i=0;i<count;i++)addItem(p.cuts[i],'person'+i,300,400);assert.equal(isComplete(p),true);for(const layout of ['strip','grid']){const s=exportSpec(layout,count);assert.equal(s.cells.length,count);for(const cell of s.cells)assert.ok(cell.x+cell.w<=s.w&&cell.y+cell.h<=s.h);assert.ok(s.footerY+225<s.h);}}assert.equal(exportSpec('grid',3).cells[2].x,800);});
 
 test('paper layout fits every copy inside the selected sheet margins', () => {
-  for (const size of ['A4', 'A6', 'letter']) {
+  for (const size of ['A4', 'A6', 'letter', 'photo-4x6']) {
     for (const copies of [1, 2, 4]) {
       const paper = getPrintLayout(size, copies);
       assert.equal(paper.cells.length, copies);
@@ -65,4 +66,34 @@ test('next empty cut respects the current selection, wraps around and ignores hi
   assert.equal(nextEmptyCut(project, 2), 0);
   addItem(first, 'first', 300, 400);
   assert.equal(nextEmptyCut(project, 2), -1);
+});
+
+test('partial output keeps photographed visible cuts in order and supports one cut', () => {
+  const project = newProject({count:3});
+  addItem(project.cuts[0], 'decor', 100, 100, 'decoration');
+  addItem(project.cuts[1], 'visible', 300, 400);
+  addItem(project.cuts[3], 'hidden', 300, 400);
+  const output = photographedProject(project);
+  assert.equal(output.count, 1);
+  assert.deepEqual(output.cuts.map(c => c.id), [project.cuts[1].id]);
+  assert.deepEqual(emptyCutIndices(project, 2), [2, 0]);
+  assert.equal(exportSpec(output.layout, output.count).cells.length, 1);
+  assert.equal(exportSpec('grid', output.count).cells.length, 1);
+  assert.equal(project.count, 3);
+});
+
+test('4x6 print PDF declares exact page dimensions, repeat count and byte offsets', async () => {
+  const image = new Blob([new Uint8Array([255,216,255,217])], {type:'image/jpeg'});
+  const pdf = createPrintPdf(image, 1440, 4400, getPrintLayout('photo-4x6', 2));
+  const content = new TextDecoder('latin1').decode(await pdf.arrayBuffer());
+  assert.equal(pdf.type, 'application/pdf');
+  assert.match(content, /\/MediaBox \[0 0 288 432\]/);
+  assert.equal((content.match(/\/Photo Do/g) || []).length, 2);
+  const offset = Number(content.match(/startxref\n(\d+)/)[1]);
+  assert.equal(content.slice(offset, offset + 4), 'xref');
+  const lookup = content.slice(offset).split('\n').slice(3, 8);
+  lookup.forEach((entry, i) => {
+    const start = Number(entry.slice(0, 10));
+    assert.equal(content.slice(start, start + 7), (i + 1) + ' 0 obj');
+  });
 });
