@@ -2,11 +2,11 @@ import {BACKGROUND_FILTERS,BUILT_IN_BACKGROUNDS,listBackgrounds,searchBackground
 import {normalizeAdjustment} from './photo-adjust.mjs';
 import {createPrintPdf} from './print-pdf.mjs?v=classroom-output';
 import {paintStroke} from './brush.mjs';
-import {CUT_W,CUT_H,MISSIONS,uid,clamp,newProject,personItems,addItem,arrangePeople,exportSpec,hitItem,moveItem,History,isComplete,getPrintLayout,presetOf,nextEmptyCut,defaultStickerScale,photographedProject,MAX_STICKERS,emptyCutIndices} from './core.mjs?v=classroom-output';
+import {CUT_W,CUT_H,MISSIONS,uid,clamp,newProject,personItems,addItem,arrangePeople,exportSpec,hitItem,moveItem,History,isComplete,getPrintLayout,presetOf,nextEmptyCut,defaultStickerScale,photographedProject,MAX_STICKERS,emptyCutIndices,swapVisibleCuts} from './core.mjs?v=classroom-recovery';
 import {drawCut,renderProject,loadImage,makeDecoration,forgetImage,drawPaperPreview} from './render.mjs?v=scrapbook-flow';
-import {readPhoto,makeCutout} from './image-tools.mjs';
+import {readPhoto,inspectPhoto,makeCutout} from './image-tools.mjs?v=classroom-recovery';
 import {initSegmenter,segmentPhoto,resetSegmenter,setStatusListener} from './segment-client.mjs';
-import {readSaved,saveSettings,clearSaved,listLessons,getLesson,saveLesson,deleteLesson} from './storage.mjs?v=classroom-tools';
+import {readSaved,saveSettings,clearSaved,listLessons,getLesson,saveLesson,deleteLesson,readClassroom,clearClassroom,saveClassroom} from './storage.mjs?v=classroom-recovery';
 
 const $=id=>document.getElementById(id),on=(id,event,fn)=>$(id).addEventListener(event,fn);
 const assets = new Map();
@@ -26,6 +26,8 @@ let lessonNames = [];
 let lessonWorking = false;
 let loadedLesson = null;
 let groupStartPreset = null;
+let importReport = null;
+let pendingImportRetry = null;
 try { classroomMode = localStorage.getItem(classroomModeKey) === 'on'; } catch {}
 const mobileLayout = matchMedia('(max-width: 720px)');
 let cameraFailed = false;
@@ -33,7 +35,7 @@ let cameraConnecting = false;
 let cameraDelayed = false;
 let cameraWaitTimer;
 let previewRevision = 0;
-const OFFLINE_VERSION='imagine-four-offline-v13';let favorites=new Set();try{favorites=new Set(JSON.parse(localStorage.getItem('booth-favorite-backgrounds')||'[]'));}catch{}
+const OFFLINE_VERSION='imagine-four-offline-v14';let favorites=new Set();try{favorites=new Set(JSON.parse(localStorage.getItem('booth-favorite-backgrounds')||'[]'));}catch{}
 const cut=()=>project.cuts[active],item=()=>cut().items.find(x=>x.id===selected),currentAsset=()=>item()&&assets.get(item().assetId);
 function message(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,5500);}
 function safe(fn){return async(...args)=>{try{await fn(...args);}catch(e){if(e.name!=='AbortError')message(e.message||'다시 시도해 주세요.');}};}
@@ -138,6 +140,24 @@ function openCutActions(index) {
   const people = personItems(project.cuts[index]);
   $('cut-action-title').textContent = (index + 1) + '번 컷';
   $('edit-picked-cut').hidden = step === 'edit';
+  const ordering = step === 'finish';
+  $('cut-order-actions').hidden = !ordering;
+  for (const [id, offset] of [['cut-move-earlier',-1], ['cut-move-later',1]]) {
+    const button = $(id);
+    const destination = index + offset;
+    button.disabled = !ordering || destination < 0 || destination >= project.count;
+    button.onclick = () => {
+      if (button.disabled || busy || running) return;
+      dialog.close();
+      mutate(() => {
+        if (!swapVisibleCuts(project,index,destination)) return;
+        active = destination;
+        selected = null;
+      });
+      $('cut-grid').children[destination]?.focus({preventScroll:true});
+      $('cut-announcement').textContent = (index + 1) + '번 컷을 ' + (destination + 1) + '번으로 옮겼어요.';
+    };
+  }
   $('edit-picked-cut').onclick = () => {
     dialog.close();
     choosePhotoCut(index, {showActions: false});
@@ -334,7 +354,7 @@ on('background-search-clear', 'click', () => {
   updateBackgroundFilter();
 });
 
-async function render(){syncFields();placeBackgroundPicker();placeCutStrip();document.body.dataset.stage=step;$('edit-near-photo').hidden=step!=='edit';const version=++renderVersion;document.getElementById("full-preview-section").hidden=step!=='finish';const stageTitles={background:'상상 속으로 떠나볼까요',camera:'우리의 순간을 담아요',edit:'스티커처럼 자유롭게',finish:isComplete(project)?'반짝이는 사진을 완성했어요':'촬영 진행 상태를 확인해요'};$('cut-label').textContent=`${active+1}번째 컷`;$('stage-title').textContent=stageTitles[step];$('camera-guide').textContent=replaceTarget?retakeGuide():`${active+1}번째 컷을 찍어요. 카메라를 보고 포즈를 취해요.`;$('next-cut').textContent=isComplete(project)?'완성 사진 보기':personItems(cut()).length?'다음 빈 컷 찍기':'이 컷 찍기';$('finish-example').hidden=!project.cuts.slice(0,project.count||4).some(c=>c.items.some(i=>i.example));document.querySelectorAll('[data-step]').forEach(b=>{const is=b.dataset.step===step;b.classList.toggle('active',is);if(is)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current');});for(const s of ['background','camera','edit','finish'])$(`${s}-tools`).hidden=s!==step;$('scene-background').textContent=backgrounds.find(b=>b.id===cut().background)?.name||'나만의 배경';$('example-tag').hidden=!cut().items.some(i=>i.example);$('scene-tip').textContent=step==='camera'?'촬영 후 인물만 오려서 붙여요':step==='edit'?'스티커를 누르고 움직여 보세요':'사진 속 우리를 이 배경에 붙여요';$('scene-tip').hidden=busy||step==='finish';$('mission').textContent=settings.customMissions[active]||MISSIONS[active];$('mission').hidden=!settings.mission;renderBackgrounds();renderCutButtons();renderControls();renderItemControls();await drawCut($('scene'),cut(),assets,backgrounds,{selected,placeholder:true});if(version!==renderVersion)return;if(step==='finish')schedulePreview();}
+async function render(){syncFields();placeBackgroundPicker();placeCutStrip();document.body.dataset.stage=step;$('edit-near-photo').hidden=step!=='edit';const version=++renderVersion;document.getElementById("full-preview-section").hidden=step!=='finish';const stageTitles={background:'상상 속으로 떠나볼까요',camera:'우리의 순간을 담아요',edit:'스티커처럼 자유롭게',finish:isComplete(project)?'반짝이는 사진을 완성했어요':'촬영 진행 상태를 확인해요'};$('cut-label').textContent=`${active+1}번째 컷`;$('stage-title').textContent=stageTitles[step];$('camera-guide').textContent=replaceTarget?retakeGuide():`${active+1}번째 컷을 찍어요. 카메라를 보고 포즈를 취해요.`;$('next-cut').textContent=isComplete(project)?'완성 사진 보기':personItems(cut()).length?'다음 빈 컷 찍기':'이 컷 찍기';const examples=project.cuts.some(current=>current.items.some(item=>item.example));$('finish-example').hidden=!examples;$('example-transition').hidden=!examples||step==='finish';$('leave-example-finish').hidden=!examples;document.querySelectorAll('[data-step]').forEach(b=>{const is=b.dataset.step===step;b.classList.toggle('active',is);if(is)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current');});for(const s of ['background','camera','edit','finish'])$(`${s}-tools`).hidden=s!==step;$('scene-background').textContent=backgrounds.find(b=>b.id===cut().background)?.name||'나만의 배경';$('example-tag').hidden=!cut().items.some(i=>i.example);$('scene-tip').textContent=step==='camera'?'촬영 후 인물만 오려서 붙여요':step==='edit'?'스티커를 누르고 움직여 보세요':'사진 속 우리를 이 배경에 붙여요';$('scene-tip').hidden=busy||step==='finish';$('mission').textContent=settings.customMissions[active]||MISSIONS[active];$('mission').hidden=!settings.mission;renderBackgrounds();renderCutButtons();renderControls();renderItemControls();drawImportReport();await drawCut($('scene'),cut(),assets,backgrounds,{selected,placeholder:true});if(version!==renderVersion)return;if(step==='finish')schedulePreview();}
 function renderCutButtons() {
   const root = $('cut-grid');
   const count = project.count || 4;
@@ -380,6 +400,7 @@ function renderCutButtons() {
 function renderControls(){
  renderLessonSummary();
  syncHandoff();
+ $('leave-example').disabled = $('leave-example-finish').disabled = busy || running;
  renderBackgroundFeedback();
  document.querySelectorAll('#cut-grid button').forEach(b=>b.disabled=busy||running);document.querySelectorAll('#background-grid button').forEach(b=>b.disabled=busy||running||settings.lockBackground);$('all-backgrounds').disabled=$('current-background-only').disabled=busy||running||settings.lockBackground;$('undo').disabled=busy||running||!history.past.length;$('redo').disabled=busy||running||!history.future.length;renderFinishControls();$('capture').textContent=`${settings.timer}초 후 촬영`;$('auto-capture').textContent=`${project.count||4}컷 연속 촬영`;$('capture').disabled=!stream||cameraConnecting||busy||running;$('start-camera').hidden=!!stream;$('start-camera').disabled=cameraConnecting||busy||running;$('keep-camera').disabled=busy||running;$('stop-camera').hidden=!stream;$('switch-camera').disabled=!stream||cameraConnecting||busy||running;$('auto-capture').disabled=!stream||cameraConnecting||busy||running||!!replaceTarget;$('stop-capture').hidden=!running;$('photo-input').disabled=busy||running;$('photo-browse').disabled=busy||running;for(const id of ['go-camera','demo-fill','teacher-open','add-person','retake','clear-cut','next-cut','show-finish','new-group'])$(id).disabled=busy||running;document.querySelectorAll('[data-step]').forEach(b=>b.disabled=busy||running);$('toggle-original').disabled=busy||!personItems(cut()).length;$('toggle-original').textContent=cut().original?'스티커로 돌아가기':'원본 보기';$('background-fit').disabled=busy||settings.lockBackground;$('background-theme').disabled=busy||running;$('background-all').disabled=busy||running;$('background-favorites').disabled=busy||running;$('scene').setAttribute('aria-busy',String(busy));$('classroom-mode-exit').disabled=busy||running;updateMobileAction();}
 function renderItemControls(){
@@ -447,13 +468,26 @@ function renderItemPicker() {
   }
   for (const unused of existing.values()) unused.remove();
 }
+function clearFinishPreview() {
+  const parent = $('full-preview');
+  const canvas = parent.firstElementChild;
+  if (canvas) canvas.width = canvas.height = 0;
+  parent.replaceChildren();
+  clearPaperPreview();
+}
+
 function schedulePreview() {
   clearTimeout(previewTimer);
   const revision = ++previewRevision;
   const version = renderVersion;
   previewTimer = setTimeout(safe(async () => {
     if (step !== 'finish') return;
-    const preview = await renderProject(project, assets, backgrounds, .28, logo);
+    const output = photographedProject(project);
+    if (!output.count) {
+      clearFinishPreview();
+      return;
+    }
+    const preview = await renderProject(output, assets, backgrounds, .28, logo);
     if (revision !== previewRevision || version !== renderVersion || step !== 'finish') {
       preview.width = preview.height = 0;
       return;
@@ -461,7 +495,7 @@ function schedulePreview() {
     const previous = $('full-preview').firstElementChild;
     if (previous) previous.width = previous.height = 0;
     preview.setAttribute('role', 'img');
-    preview.setAttribute('aria-label', isComplete(project) ? '완성한 사진' : '촬영 중인 사진 미리보기');
+    preview.setAttribute('aria-label', output.count + '컷 저장본 미리보기');
     $('full-preview').replaceChildren(preview);
     renderPaperPreview();
   }), 120);
@@ -564,7 +598,7 @@ function beep(){if(!settings.sound)return;try{audio=audio||new(window.AudioConte
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function countdown(epoch){$('countdown').hidden=false;try{for(let i=settings.timer;i>0;i--){if(epoch!==cancelEpoch||!stream)throw new DOMException('촬영 중단','AbortError');$('countdown').textContent=i;beep();await delay(1000);}if(epoch!==cancelEpoch||!stream)throw new DOMException('촬영 중단','AbortError');}finally{$('countdown').hidden=true;}}
 function cameraFrame(v, mirror){const c=document.createElement('canvas');const w=v.videoWidth,h=v.videoHeight;if(!w||!h)throw Error('카메라가 준비된 뒤 다시 찍어 주세요.');const sw=Math.min(w,h*4/3),sh=Math.min(h,w*3/4),scale=Math.min(1,1600/sw);c.width=Math.round(sw*scale);c.height=Math.round(sh*scale);const ctx=c.getContext('2d');if(mirror){ctx.translate(c.width,0);ctx.scale(-1,1);}ctx.drawImage(v,(w-sw)/2,(h-sh)/2,sw,sh,0,0,c.width,c.height);return c;}
-async function processSource(source,{index=active,target=replaceTarget,original=false,epoch=cancelEpoch,mode=sourceMode}={}){let result=null,sourceOnly=original;while(!sourceOnly){try{setBusy(true);const m=await segmentPhoto(source);if(epoch!==cancelEpoch)return false;const image=makeCutout(source,m.mask,m.w,m.h);result={image,w:image.width,h:image.height,source,mask:m.mask,mw:m.w,mh:m.h};break;}catch(e){if(epoch!==cancelEpoch)return false;setBusy(false);const choice=await errorChoice(e.message);if(choice==='cancel')return false;if(choice==='original'){sourceOnly=true;break;}resetSegmenter();}}
+async function processSource(source,{index=active,target=replaceTarget,original=false,epoch=cancelEpoch,mode=sourceMode,interactive=true}={}){let result=null,sourceOnly=original;while(!sourceOnly){try{setBusy(true);const m=await segmentPhoto(source);if(epoch!==cancelEpoch)return false;const image=makeCutout(source,m.mask,m.w,m.h);result={image,w:image.width,h:image.height,source,mask:m.mask,mw:m.w,mh:m.h};break;}catch(e){if(epoch!==cancelEpoch)return false;if(!interactive)throw e;setBusy(false);const choice=await errorChoice(e.message);if(choice==='cancel')return false;if(choice==='original'){sourceOnly=true;break;}resetSegmenter();}}
 if(epoch!==cancelEpoch)return false;if(sourceOnly)result={image:source,w:source.width,h:source.height,source};const c=project.cuts[index];if(!target&&mode!=='replace-cut'&&personItems(c).length>=MAX_STICKERS){setBusy(false);throw Error('한 컷에는 인물 3개까지 넣을 수 있어요. 기존 인물을 선택해 바꾸거나 다른 컷을 골라 주세요.');}record();const id=uid();assets.set(id,result);const oldIndex=target?c.items.findIndex(i=>i.id===target):-1;const old=c.items[oldIndex];if(mode==='replace-cut')c.items=[];else if(old)c.items=c.items.filter(i=>i.id!==target);const newItem=addItem(c,id,result.w,result.h);if(old){newItem.x=old.x;newItem.y=old.y;newItem.rotation=old.rotation;newItem.scale=old.scale*(assets.get(old.assetId)?.w||result.w)/result.w;newItem.border=old.border;newItem.softness=old.softness;c.items.splice(oldIndex,0,c.items.pop());}c.original=sourceOnly&&personItems(c).length===1;selected=newItem.id;active=index;replaceTarget=null;sourceMode='append';setBusy(false);cleanAssets();return true;}
 function reviewCapture(source){return new Promise(resolve=>{const d=$('capture-review'),c=$('capture-review-image');c.width=source.width;c.height=source.height;c.getContext('2d').drawImage(source,0,0);let done=false;const finish=value=>{if(done)return;done=true;d.close();d.removeEventListener('cancel',cancel);c.width=c.height=0;resolve(value);};const cancel=e=>{e.preventDefault();finish(false);};$('capture-retake').onclick=()=>finish(false);$('capture-use').onclick=()=>finish(true);d.addEventListener('cancel',cancel);d.showModal();});}
 async function shoot(auto = false) {
@@ -627,7 +661,9 @@ function selectImports(files) {
     const batch = files.length > 1;
     const slots = batch ? emptyCutIndices(project, active) : [active];
     const people = batch ? [] : personItems(cut());
-    const rows = files.map((file, id) => ({file, id, url:URL.createObjectURL(file), include:true}));
+    const rows = files.map((file, id) => ({file, id, url:URL.createObjectURL(file), include:true, result:'pending', error:''}));
+    let checking = false;
+    let closed = false;
     const modes = [...dialog.querySelectorAll('input[name="import-mode"]')];
     const [append, replacePerson] = modes;
     append.disabled = people.length >= MAX_STICKERS;
@@ -651,22 +687,52 @@ function selectImports(files) {
       const mode = modes.find(input => input.checked)?.value || 'append';
       const target = dialog.querySelector('input[name="import-person"]:checked')?.value;
       const plan = rows.filter(row => row.include).slice(0, slots.length)
-        .map((row, position) => ({file:row.file, index:slots[position], id:row.id}));
-      return {plan, mode, target};
+        .map((row, position) => ({file:row.file, index:slots[position], id:row.id, result:row.result, error:row.error}));
+      return {plan, mode, target, batch};
     };
 
-    function refresh() {
+    function updateStatus() {
       const {plan, mode, target} = selection();
-      const isReplacing = !!people.length && mode === 'replace-person';
-      $('import-person-group').hidden = !isReplacing;
-      $('import-confirm').disabled = !plan.length || (isReplacing && !target);
+      const replacing = !!people.length && mode === 'replace-person';
+      $('import-person-group').hidden = !replacing;
+      const ready = plan.filter(entry => entry.result === 'ready').length;
+      const invalid = plan.filter(entry => entry.result === 'invalid').length;
+      const waiting = plan.length - ready - invalid;
       const excluded = rows.length - plan.length;
-      const personPosition = people.findIndex(person => person.id === target);
-      $('import-summary').textContent = batch
-        ? (plan.length ? plan.length + '장 넣기' : '넣을 사진이 없어요.') + (excluded ? ' · ' + excluded + '장 제외' : '')
-        : (active + 1) + '번 컷' + (isReplacing && target ? ' · 인물 ' + (personPosition + 1) + ' 교체' : isReplacing ? ' · 바꿀 인물을 선택해 주세요.' : '');
+            $('import-confirm').disabled = !plan.length || !!waiting || (ready > 0 && replacing && !target);
+      $('import-confirm').textContent = !ready && !waiting && !!invalid ? '실패 파일 확인' : '사진 넣기';
+      const personIndex = people.findIndex(person => person.id === target);
+      const placement = (active + 1) + '번 컷' + (replacing ? (target ? ' · 인물 ' + (personIndex + 1) + ' 교체' : ' · 바꿀 인물을 선택해 주세요.') : '');
+      const count = waiting ? '확인 중 ' + waiting + '장' : ready ? ready + '장 넣기' : '넣을 사진이 없어요.';
+      const notes = (invalid ? ' · ' + invalid + '장 열 수 없음' : '') + (excluded ? ' · ' + excluded + '장 제외' : '');
+      $('import-summary').textContent = batch ? count + notes : placement + ' · ' + count + notes;
+      for (const row of rows) {
+        const destination = dialog.querySelector('[data-import-note="' + row.id + '"]');
+        const entry = plan.find(current => current.id === row.id);
+        destination.textContent = entry
+          ? (entry.index + 1) + '번 컷' + (row.result === 'invalid' ? ' · ' + row.error : row.result === 'pending' ? ' · 파일 확인 중' : '')
+          : row.include ? '빈 컷 부족 · 이번에 넣지 않음' : '제외됨';
+        destination.classList.toggle('import-invalid', row.result === 'invalid' && !!entry);
+      }
+    }
+
+    async function inspectAssigned() {
+      if (checking || closed) return;
+      checking = true;
+      try {
+        while (!closed) {
+          const planned = selection().plan.find(entry => entry.result === 'pending');
+          if (!planned) break;
+          const row = rows.find(current => current.id === planned.id);
+          try { await inspectPhoto(row.file); row.result = 'ready'; }
+          catch (error) { row.result = 'invalid'; row.error = error.message; }
+          if (!closed) updateStatus();
+        }
+      } finally { checking = false; }
+    }
+
+    function refresh() {
       $('import-list').replaceChildren(...rows.map((row, position) => {
-        const targetCut = plan.find(entry => entry.id === row.id);
         const preview = document.createElement('div');
         preview.className = 'import-row';
         const image = document.createElement('img');
@@ -678,7 +744,7 @@ function selectImports(files) {
         name.textContent = row.file.name;
         const destination = document.createElement('span');
         destination.className = 'note';
-        destination.textContent = targetCut ? (targetCut.index + 1) + '번 컷' : row.include ? '빈 컷 부족 · 이번에 넣지 않음' : '제외됨';
+        destination.dataset.importNote = String(row.id);
         text.append(name,destination);
         preview.append(image,text);
         if (batch) {
@@ -705,11 +771,15 @@ function selectImports(files) {
         }
         return preview;
       }));
+      updateStatus();
+      inspectAssigned();
     }
 
     const previewFallback = id => dialog.querySelector('[data-import-action="' + id + ':0"]');
     for (const input of modes) input.onchange = refresh;
     const finish = (accept) => {
+      if (closed) return;
+      closed = true;
       const result = selection();
       dialog.close();
       $('import-list').replaceChildren();
@@ -729,34 +799,110 @@ on('photo-browse','click',() => {
   if (cameraConnecting) stopCamera();
   $('photo-input').click();
 });
+function drawImportReport() {
+  const panel = $('import-result-panel');
+  panel.hidden = !importReport;
+  if (!importReport) { $('import-failure-list').replaceChildren(); return; }
+  const {added, failures} = importReport;
+  $('import-result-status').textContent = added + '장 추가 · ' + failures.length + '장 실패';
+  $('import-failure-list').replaceChildren(...failures.map(failure => {
+    const index = project.cuts.slice(0, project.count).findIndex(current => current.id === failure.cutId);
+    const li = document.createElement('li');
+    const description = document.createElement('span');
+    description.textContent = failure.name + (index >= 0 ? ' · ' + (index + 1) + '번 컷' : '') + ' · ' + failure.reason;
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'button compact';
+    retry.textContent = '파일 다시 고르기';
+    retry.setAttribute('aria-label', failure.name + ' 다시 고르기');
+    retry.disabled = busy || running || index < 0;
+    retry.onclick = () => { pendingImportRetry = failure; $('import-retry-input').click(); };
+    li.append(description, retry);
+    return li;
+  }));
+}
+
+function forgetImportReport() {
+  importReport = pendingImportRetry = null;
+  drawImportReport();
+}
+
+async function importPhoto(file, index, options) {
+  setBusy(true, '사진을 준비하고 있어요');
+  const source = await readPhoto(file);
+  if (options.epoch !== cancelEpoch) return false;
+  return processSource(source, {...options, index});
+}
+
+function finishImport(epoch, added) {
+  if (epoch !== cancelEpoch) return;
+  setBusy(false);
+  if (added) step = isComplete(project) ? 'finish' : 'edit';
+  render();
+  scrollToStage();
+  if (importReport) $('import-result-panel').scrollIntoView({block:'nearest'});
+}
+
+on('import-result-close', 'click', forgetImportReport);
 on('photo-input', 'change', safe(async event => {
   const files = [...event.target.files];
   event.target.value = '';
   if (!files.length) return;
   const selection = await selectImports(files);
   if (!selection) return;
+  forgetImportReport();
   const epoch = ++cancelEpoch;
   stopCamera();
-  const original = $('original-import').checked;
+  const options = {
+    epoch, original: $('original-import').checked, interactive:!selection.batch,
+    target: selection.mode === 'replace-person' ? selection.target : null,
+    mode: selection.mode === 'replace-cut' ? 'replace-cut' : 'append'
+  };
+  const report = {added:0, failures:[]};
   try {
-    for (const {file,index} of selection.plan) {
-      setBusy(true, '사진을 준비하고 있어요');
-      const source = await readPhoto(file);
-      if (epoch !== cancelEpoch) break;
-      const ok = await processSource(source, {
-        index, epoch, original,
-        target: selection.mode === 'replace-person' ? selection.target : null,
-        mode: selection.mode === 'replace-cut' ? 'replace-cut' : 'append'
-      });
-      if (!ok) break;
-      step = 'edit';
+    for (const entry of selection.plan) {
+      const current = project.cuts[entry.index];
+      try {
+        if (entry.result === 'invalid') throw Error(entry.error);
+        const ok = await importPhoto(entry.file, entry.index, options);
+        if (epoch !== cancelEpoch) return;
+        if (ok) report.added++;
+        else if (selection.batch) throw Error('사진을 넣지 못했어요.');
+      } catch (error) {
+        if (epoch !== cancelEpoch) return;
+        report.failures.push({
+          name:entry.file.name, reason:error.message || '사진을 처리할 수 없어요.',
+          cutId:current.id, items:current.items.map(item => item.id),
+          original:options.original, target:options.target, mode:options.mode
+        });
+      }
     }
   } finally {
-    setBusy(false);
-    if (isComplete(project) && step === 'edit') step = 'finish';
-    render();
-    scrollToStage();
+    if (epoch === cancelEpoch) importReport = selection.batch || report.failures.length ? report : null;
+    finishImport(epoch,report.added);
   }
+}));
+
+on('import-retry-input', 'change', safe(async event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  const failure = pendingImportRetry;
+  pendingImportRetry = null;
+  if (!file || !importReport?.failures.includes(failure) || busy || running) return;
+  const index = project.cuts.slice(0,project.count).findIndex(current => current.id === failure.cutId);
+  const unchanged = index >= 0 && project.cuts[index].items.map(item => item.id).join() === failure.items.join();
+  if (!unchanged) { message('이 컷을 편집했어요. 컷을 선택한 뒤 사진을 불러와 주세요.'); return; }
+  stopCamera();
+  const epoch = ++cancelEpoch;
+  let added = false;
+  try {
+    added = await importPhoto(file,index,{epoch,original:failure.original,target:failure.target,mode:failure.mode});
+    if (epoch !== cancelEpoch || !added) return;
+    importReport.added++;
+    importReport.failures = importReport.failures.filter(current => current !== failure);
+  } catch (error) {
+    if (epoch === cancelEpoch) { failure.name = file.name; failure.reason = error.message; }
+  } finally { finishImport(epoch,added); }
 }));
 document.querySelectorAll('[data-step]').forEach(button => {
   button.onclick = () => {
@@ -775,6 +921,25 @@ on('add-person', 'click', () => {
   if (current) startRetake(active, current.id);
   else if (people.length) openCutActions(active);
 });
+function leaveExample() {
+  if (busy || running) return;
+  mutate(() => {
+    for (const current of project.cuts) {
+      if (personItems(current)[0]?.example) current.original = false;
+      current.items = current.items.filter(sticker => !sticker.example);
+    }
+    const next = nextEmptyCut(project,active);
+    selected = replaceTarget = null;
+    sourceMode = 'append';
+    if (next >= 0) { active = next; step = 'camera'; }
+    else step = 'finish';
+  });
+  scrollToStage();
+  $('stage-title').focus({preventScroll:true});
+  message('예시 스티커를 지웠어요. 실제 사진과 배경은 남아 있어요.');
+}
+on('leave-example', 'click', leaveExample);
+on('leave-example-finish', 'click', leaveExample);
 on('toggle-original','click',safe(async()=>{if(cut().original){const it=personItems(cut())[0],a=assets.get(it.assetId);if(!a.mask&&!it.example){await processSource(a.source,{target:it.id});render();return;}}mutate(()=>cut().original=!cut().original);}));on('clear-cut','click',safe(async()=>{if(await confirmAction('이 컷을 비울까요?','다른 컷은 그대로 남아요. 실행 취소로 되돌릴 수 있어요.'))mutate(()=>{cut().items=[];cut().original=false;selected=null;});}));
 on('undo','click',()=>{project=history.undo(project);active=Math.min(active,(project.count||4)-1);selected=null;cleanAssets();render();});on('redo','click',()=>{project=history.redo(project);active=Math.min(active,(project.count||4)-1);selected=null;cleanAssets();render();});
 on('background-fit','change',e=>mutate(()=>cut().fit=e.target.value));
@@ -963,6 +1128,7 @@ async function resetForNextGroup(keepStyle) {
   clearPrint();
   clearExportImage();
   requestedExport = null;
+  forgetImportReport();
   history.clear();
   assets.clear();
   pointers.clear();
@@ -1140,9 +1306,33 @@ on('delete-preset','click',safe(async()=>{if(!await confirmAction('기본 시작
 setStatusListener(state=>{prepared=state==='ready';$('model-status').textContent=state==='ready'?'✓ 인물 오리기 준비 완료':state==='loading'?'인물 오리기 준비 중':'인물 오리기 다시 준비';$('model-status').classList.toggle('ready',prepared);});
 on('model-status','click',safe(async()=>{if(prepared){message('사진을 찍거나 불러오면 인물을 오려 드려요.');return;}resetSegmenter();await initSegmenter();message('인물 오리기가 준비됐어요.');}));
 document.addEventListener('visibilitychange',()=>{if(document.hidden){if(running){cancelEpoch++;resetSegmenter();setBusy(false);}stopCamera();}});
-window.addEventListener('pagehide',()=>{cancelEpoch++;renderVersion++;clearTimeout(previewTimer);if($('brush-dialog').open)$('brush-dialog').close();resetSegmenter();stopCamera();clearPrint();assets.clear();history.clear();project.cuts.forEach(c=>c.items=[]);document.querySelectorAll('#scene,#cut-grid canvas,#full-preview canvas,#brush-canvas,#paper-preview').forEach(c=>c.getContext('2d')?.clearRect(0,0,c.width,c.height));$('full-preview').replaceChildren();clearExportImage();requestedExport=null;});window.addEventListener('pageshow',event=>{if(event.persisted){active=0;selected=null;step='background';render();initSegmenter().catch(()=>{});}});
+window.addEventListener('pagehide',()=>{cancelEpoch++;renderVersion++;clearTimeout(previewTimer);if($('brush-dialog').open)$('brush-dialog').close();resetSegmenter();stopCamera();clearPrint();assets.clear();history.clear();project.cuts.forEach(c=>c.items=[]);document.querySelectorAll('#scene,#cut-grid canvas,#full-preview canvas,#brush-canvas,#paper-preview').forEach(c=>c.getContext('2d')?.clearRect(0,0,c.width,c.height));$('full-preview').replaceChildren();forgetImportReport();clearExportImage();requestedExport=null;});window.addEventListener('pageshow',event=>{if(event.persisted){active=0;selected=null;step='background';render();initSegmenter().catch(()=>{});}});
 window.addEventListener('beforeunload',e=>{if(isDirty()){e.preventDefault();e.returnValue='';}});
-async function boot(){syncClassroomMode();try{const saved=await readSaved();if(saved){for(const b of saved.backgrounds||[])backgrounds.push({...b,url:URL.createObjectURL(b.blob),builtIn:false});project=newProject(saved.preset);settings={...settings,...Object.fromEntries(Object.entries(saved.preset).filter(([k])=>['timer','sound','mission','customMissions','lockBackground'].includes(k)))};if(saved.logo){logo=await readPhoto(saved.logo);logoBlob=saved.logo;}presetStatus='저장해 둔 배경과 설정을 불러왔어요.';}}catch{presetStatus='기기 저장소를 사용할 수 없어 이번 사용 중에만 설정을 유지해요.';}captureGroupStart();syncFields();render();initSegmenter().catch(()=>message('인물 오리기 준비를 완료하지 못했어요. 다시 준비하거나 원본 모드로 사용할 수 있어요.'));}
+async function boot() {
+  syncClassroomMode();
+  try {
+    const resume = classroomMode ? await readClassroom() : null;
+    const saved = resume || await readSaved();
+    if (saved) {
+      for (const background of saved.backgrounds || []) {
+        backgrounds.push({...background,url:URL.createObjectURL(background.blob),builtIn:false});
+      }
+      project = newProject(saved.preset);
+      for (const key of ['timer','sound','mission','customMissions','lockBackground']) {
+        if (Object.hasOwn(saved.preset,key)) settings[key] = saved.preset[key];
+      }
+      if (saved.logo) { logo = await readPhoto(saved.logo); logoBlob = saved.logo; }
+      presetStatus = resume ? '이 기기에 보관한 수업 설정을 불러왔어요.' : '저장해 둔 배경과 설정을 불러왔어요.';
+      if (resume) message('보관한 수업 설정으로 시작했어요.');
+    }
+  } catch {
+    presetStatus = '기기 저장소를 사용할 수 없어 이번 사용 중에만 설정을 유지해요.';
+  }
+  captureGroupStart();
+  syncFields();
+  render();
+  initSegmenter().catch(() => message('인물 오리기 준비를 완료하지 못했어요. 다시 준비하거나 원본 모드로 사용할 수 있어요.'));
+}
 boot();
 import {enableBrush,checkReadiness} from './extras.mjs?v=scrapbook-flow';
 enableBrush({getItem:item,getAsset:id=>assets.get(id),notify:message,apply:mask=>{const it=item(),a=currentAsset();if(!it||!a?.mask)throw Error('인물을 다시 선택해 주세요.');const image=makeCutout(a.source,mask,a.mw,a.mh,it.softness),id=uid();record();assets.set(id,{...a,mask:mask.slice(),image,w:image.width,h:image.height});it.scale*=a.w/image.width;it.assetId=id;cleanAssets();render();}});
@@ -1180,7 +1370,8 @@ function renderFinishControls() {
   const remaining = count - filled;
   const complete = remaining === 0;
   $('finish-title').textContent = complete ? '우리만의 사진, 완성!' : '전체 사진 미리보기';
-  $('finish-preview-note').textContent = complete ? '저장본과 같은 배열이에요' : '촬영한 컷을 먼저 확인해요';
+    $('finish-preview-note').textContent = filled ? filled + '컷 PNG와 같은 배열이에요' : '첫 컷을 찍어 보세요';
+  $('full-preview-empty').hidden = !!filled;
   $('save-status').textContent = complete
     ? `${count}컷이 모두 준비됐어요. PNG로 저장하거나 인쇄해 주세요.`
     : filled ? `${filled}컷을 찍었어요. 찍은 컷만 저장하거나 ${remaining}컷 더 찍을 수 있어요.`
@@ -1188,6 +1379,7 @@ function renderFinishControls() {
   $('fill-missing').hidden = complete;
   $('fill-missing').disabled = busy || running;
   $('export-options').hidden = !complete;
+  $('finish-print-actions').hidden = !complete;
   $('download-partial').hidden = complete || !filled;
   $('download-partial').disabled = busy || running;
   $('download-partial').textContent = '찍은 ' + filled + '컷만 저장';
@@ -1249,6 +1441,8 @@ function clearPaperPreview() {
 }
 
 function renderPaperPreview() {
+  const paper = getPrintLayout($('print-paper').value, $('print-copies').value);
+  $('print-summary').textContent = (paper.label ? '4×6인치' : paper.cssSize) + ' · ' + paper.copies + '장';
   const photo = $('full-preview').querySelector('canvas');
   const complete = isComplete(project);
   $('paper-unavailable').hidden = complete;
@@ -1256,7 +1450,6 @@ function renderPaperPreview() {
     clearPaperPreview();
     return;
   }
-  const paper = getPrintLayout($('print-paper').value, $('print-copies').value);
   const preview = $('paper-preview');
   drawPaperPreview(preview, photo, paper);
   preview.setAttribute('aria-label', `${paper.label || paper.cssSize + ' 용지'}에 완성 사진 ${paper.copies}장 예상 배치`);
@@ -1284,16 +1477,34 @@ function changeClassroomMode(value) {
   syncClassroomMode();
 }
 
-on('classroom-mode-enter', 'click', () => {
-  changeClassroomMode(true);
-  $('teacher-dialog').close();
-  $('stage-title').focus({preventScroll:true});
-  scrollToStage();
-  message('학생용 수업 모드를 시작했어요.');
-});
+on('classroom-mode-enter', 'click', safe(async () => {
+  const button = $('classroom-mode-enter');
+  const remember = $('classroom-persist');
+  const status = $('classroom-persist-status');
+  if (button.disabled) return;
+  button.disabled = remember.disabled = true;
+  status.hidden = !remember.checked;
+  status.textContent = '수업 설정을 이 기기에 보관하고 있어요.';
+  try {
+    if (remember.checked) {
+      await saveClassroom(currentLessonPreset(), backgrounds.filter(background => !background.builtIn)
+        .map(({id,name,blob}) => ({id,name,blob})), logoBlob);
+    } else await clearClassroom().catch(() => {});
+    changeClassroomMode(true);
+    $('teacher-dialog').close();
+    status.hidden = true;
+    $('stage-title').focus({preventScroll:true});
+    scrollToStage();
+    message(remember.checked ? '수업 설정을 기기에 보관하고 학생용 모드를 시작했어요.' : '학생용 수업 모드를 시작했어요.');
+  } catch {
+    status.hidden = false;
+    status.textContent = '이 기기에 설정을 보관하지 못했어요. 다시 시도하거나 보관 선택을 해제하고 시작해 주세요.';
+  } finally { button.disabled = remember.disabled = false; }
+}));
 on('classroom-mode-exit', 'click', safe(async () => {
   if (!await confirmAction('수업 모드를 종료할까요?', '교사 설정을 다시 열 수 있어요. 현재 사진은 유지됩니다.')) return;
   changeClassroomMode(false);
+  await clearClassroom().catch(() => {});
   openTeacherSettings();
 }));
 

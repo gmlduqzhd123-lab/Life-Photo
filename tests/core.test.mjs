@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {newProject,addItem,arrangePeople,personItems,History,exportSpec,getPrintLayout,presetOf,hitItem,moveItem,isComplete,nextEmptyCut,emptyCutIndices,photographedProject} from '../dist/core.mjs';
+import {newProject,addItem,arrangePeople,personItems,History,exportSpec,getPrintLayout,presetOf,hitItem,moveItem,isComplete,nextEmptyCut,emptyCutIndices,photographedProject,swapVisibleCuts} from '../dist/core.mjs';
 import {createPrintPdf} from '../dist/print-pdf.mjs';
 test('deleting a middle cut preserves every other cut identity and content',()=>{const p=newProject(),ids=p.cuts.map(c=>c.id);p.cuts.forEach((c,i)=>addItem(c,'photo'+i,400,600));p.cuts[1].items=[];assert.deepEqual(p.cuts.map(c=>c.id),ids);assert.equal(p.cuts[2].items[0].assetId,'photo2');assert.equal(isComplete(p),false);});
 test('person limit applies to people rather than decorative items',()=>{const c=newProject().cuts[0];for(let i=0;i<8;i++)addItem(c,'heart',180,180,'decoration');for(let i=0;i<3;i++)addItem(c,'person',500,600);assert.equal(personItems(c).length,3);assert.throws(()=>addItem(c,'extra',500,600),/3개/);});
@@ -96,4 +96,23 @@ test('4x6 print PDF declares exact page dimensions, repeat count and byte offset
     const start = Number(entry.slice(0, 10));
     assert.equal(content.slice(start, start + 7), (i + 1) + ' 0 obj');
   });
+});
+
+test('moving a visible cut keeps its photo, background and adjustments together and is undoable', () => {
+  const project = newProject({count:3});
+  const first = project.cuts[0], second = project.cuts[1], hidden = project.cuts[3];
+  first.background = 'ocean';
+  first.adjustment.brightness = 115;
+  addItem(first, 'person-a', 400, 600);
+  const history = new History();
+  history.record(project);
+  assert.equal(swapVisibleCuts(project, 0, 1), true);
+  assert.equal(project.cuts[0], second);
+  assert.equal(project.cuts[1], first);
+  assert.equal(project.cuts[1].items[0].assetId, 'person-a');
+  assert.equal(project.cuts[1].adjustment.brightness, 115);
+  assert.equal(project.cuts[1].background, 'ocean');
+  assert.equal(swapVisibleCuts(project, 2, 3), false);
+  assert.equal(project.cuts[3], hidden);
+  assert.equal(history.undo(project).cuts[0].id, first.id);
 });

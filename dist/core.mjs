@@ -37,6 +37,13 @@ export function moveItem(item,x,y){item.x=clamp(x,0,CUT_W);item.y=clamp(y,0,CUT_
 export function exportSpec(layout,count=4){count=clamp(Number(count)||4,1,4);if(layout==='grid'){const rows=Math.ceil(count/2),h=120+rows*900+(rows-1)*80+480;return{w:2800,h,cells:Array.from({length:count},(_,i)=>({x:count%2&&i===count-1?800:180+(i%2)*1240,y:120+Math.floor(i/2)*980,w:1200,h:900})),footerY:120+rows*900+(rows-1)*80+50};}const h=120+count*900+(count-1)*40+560;return{w:1440,h,cells:Array.from({length:count},(_,i)=>({x:120,y:120+i*940,w:1200,h:900})),footerY:120+count*900+(count-1)*40+80};}
 export class History{constructor(limit=20){this.limit=limit;this.past=[];this.future=[];}record(state){this.past.push(structuredClone(state));if(this.past.length>this.limit)this.past.shift();this.future=[];}undo(current){if(!this.past.length)return current;this.future.push(structuredClone(current));return this.past.pop();}redo(current){if(!this.future.length)return current;this.past.push(structuredClone(current));return this.future.pop();}clear(){this.past=[];this.future=[];}}
 export const isComplete=state=>state.cuts.slice(0,state.count||4).every(c=>personItems(c).length>0);
+export function swapVisibleCuts(project, from, to) {
+  const count = project.count || 4;
+  if (![from,to].every(index => Number.isInteger(index) && index >= 0 && index < count) || from === to) return false;
+  [project.cuts[from], project.cuts[to]] = [project.cuts[to], project.cuts[from]];
+  return true;
+}
+
 export function photographedProject(state) {
   const cuts = state.cuts.slice(0, state.count || 4).filter(current => personItems(current).length);
   return {...state, cuts, count: cuts.length};

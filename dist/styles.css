@@ -625,6 +625,40 @@ body[data-classroom-mode] .classroom-mode-label { white-space: nowrap; }
 }
 #import-person-options label:has(input:checked) { background: var(--blue-paper); border-color: var(--blue); }
 #import-person-options canvas { width: 40px; height: 30px; background: var(--paper); border-radius: 4px; }
+.import-result-panel, .example-transition {
+  margin-block: 10px;
+  padding: 10px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--blue-paper);
+}
+.import-result-panel h3 { margin: 0; font-size: 1rem; }
+.import-result-panel ul { display: grid; gap: 6px; padding: 0; list-style: none; margin: 6px 0; }
+.import-result-panel li { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.import-result-panel li span { flex: 1 1 170px; min-width: 0; overflow-wrap: anywhere; }
+#import-list .import-invalid { color: var(--clay-dark); font-weight: 700; }
+.example-transition { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; }
+.example-transition .helper { margin: 0; }
+#leave-example-finish { margin-bottom: 7px; }
+.cut-order-actions { margin-block: 9px; }
+.classroom-resume { margin-block: 8px 0; }
+.finish-print {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+.finish-print summary {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  align-items: center;
+  gap: 5px 8px;
+}
+#finish-print-actions { margin-bottom: 7px; }
+#print-summary { color: var(--blue); font-size: .86rem; }
+@media (max-width: 400px) {
+  #finish-print-actions .button { flex: 1 1 auto; }
+}
 
 /* GitHub Pages sharing and installation controls. */
 .ys-credit { flex-basis: 100%; margin: 0; text-align: center; }

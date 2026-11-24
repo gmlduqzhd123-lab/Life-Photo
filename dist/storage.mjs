@@ -1,6 +1,7 @@
 const DB = 'imagine-four-settings';
 const STORE = 'settings';
 const STARTUP = 'preset';
+const ACTIVE_CLASSROOM = 'active-classroom';
 const LESSON_PREFIX = 'lesson:';
 
 function openDatabase() {
@@ -62,6 +63,13 @@ export const clearSaved = () => deleteKey(STARTUP);
 export async function saveSettings(preset, backgrounds, logo = null) {
   const data = snapshot(preset, backgrounds, logo);
   return accessStore('readwrite', store => store.put(data, STARTUP));
+}
+
+export const readClassroom = () => readKey(ACTIVE_CLASSROOM);
+export const clearClassroom = () => deleteKey(ACTIVE_CLASSROOM);
+export function saveClassroom(preset, backgrounds, logo = null) {
+  const data = snapshot(preset, backgrounds, logo);
+  return accessStore('readwrite', store => store.put(data, ACTIVE_CLASSROOM));
 }
 
 function lessonRange() {
