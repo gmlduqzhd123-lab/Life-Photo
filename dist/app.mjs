@@ -2,8 +2,8 @@ import {BACKGROUND_FILTERS,BUILT_IN_BACKGROUNDS,listBackgrounds,searchBackground
 import {normalizeAdjustment} from './photo-adjust.mjs';
 import {createPrintPdf} from './print-pdf.mjs?v=classroom-output';
 import {paintStroke} from './brush.mjs';
-import {CUT_W,CUT_H,MISSIONS,uid,clamp,newProject,personItems,addItem,arrangePeople,exportSpec,hitItem,moveItem,History,isComplete,getPrintLayout,presetOf,nextEmptyCut,defaultStickerScale,photographedProject,MAX_STICKERS,emptyCutIndices,swapVisibleCuts} from './core.mjs?v=classroom-recovery';
-import {drawCut,renderProject,loadImage,makeDecoration,forgetImage,drawPaperPreview} from './render.mjs?v=scrapbook-flow';
+import {CUT_W,CUT_H,MISSIONS,uid,clamp,newProject,personItems,addItem,arrangePeople,exportSpec,hitItem,moveItem,History,isComplete,getPrintLayout,presetOf,nextEmptyCut,defaultStickerScale,photographedProject,MAX_STICKERS,emptyCutIndices,swapVisibleCuts,originalPerson} from './core.mjs?v=classroom-review';
+import {drawCut,renderProject,loadImage,makeDecoration,forgetImage,drawPaperPreview,cover} from './render.mjs?v=classroom-review';
 import {readPhoto,inspectPhoto,makeCutout} from './image-tools.mjs?v=classroom-recovery';
 import {initSegmenter,segmentPhoto,resetSegmenter,setStatusListener} from './segment-client.mjs';
 import {readSaved,saveSettings,clearSaved,listLessons,getLesson,saveLesson,deleteLesson,readClassroom,clearClassroom,saveClassroom} from './storage.mjs?v=classroom-recovery';
@@ -35,7 +35,7 @@ let cameraConnecting = false;
 let cameraDelayed = false;
 let cameraWaitTimer;
 let previewRevision = 0;
-const OFFLINE_VERSION='imagine-four-offline-v14';let favorites=new Set();try{favorites=new Set(JSON.parse(localStorage.getItem('booth-favorite-backgrounds')||'[]'));}catch{}
+const OFFLINE_VERSION='imagine-four-offline-v15';let favorites=new Set();try{favorites=new Set(JSON.parse(localStorage.getItem('booth-favorite-backgrounds')||'[]'));}catch{}
 const cut=()=>project.cuts[active],item=()=>cut().items.find(x=>x.id===selected),currentAsset=()=>item()&&assets.get(item().assetId);
 function message(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,5500);}
 function safe(fn){return async(...args)=>{try{await fn(...args);}catch(e){if(e.name!=='AbortError')message(e.message||'다시 시도해 주세요.');}};}
@@ -400,9 +400,11 @@ function renderCutButtons() {
 function renderControls(){
  renderLessonSummary();
  syncHandoff();
+ $('import-result-close').disabled = busy || running;
+ for (const button of $('import-failure-list').querySelectorAll('button')) button.disabled = busy || running || button.dataset.missingCut === 'true';
  $('leave-example').disabled = $('leave-example-finish').disabled = busy || running;
  renderBackgroundFeedback();
- document.querySelectorAll('#cut-grid button').forEach(b=>b.disabled=busy||running);document.querySelectorAll('#background-grid button').forEach(b=>b.disabled=busy||running||settings.lockBackground);$('all-backgrounds').disabled=$('current-background-only').disabled=busy||running||settings.lockBackground;$('undo').disabled=busy||running||!history.past.length;$('redo').disabled=busy||running||!history.future.length;renderFinishControls();$('capture').textContent=`${settings.timer}초 후 촬영`;$('auto-capture').textContent=`${project.count||4}컷 연속 촬영`;$('capture').disabled=!stream||cameraConnecting||busy||running;$('start-camera').hidden=!!stream;$('start-camera').disabled=cameraConnecting||busy||running;$('keep-camera').disabled=busy||running;$('stop-camera').hidden=!stream;$('switch-camera').disabled=!stream||cameraConnecting||busy||running;$('auto-capture').disabled=!stream||cameraConnecting||busy||running||!!replaceTarget;$('stop-capture').hidden=!running;$('photo-input').disabled=busy||running;$('photo-browse').disabled=busy||running;for(const id of ['go-camera','demo-fill','teacher-open','add-person','retake','clear-cut','next-cut','show-finish','new-group'])$(id).disabled=busy||running;document.querySelectorAll('[data-step]').forEach(b=>b.disabled=busy||running);$('toggle-original').disabled=busy||!personItems(cut()).length;$('toggle-original').textContent=cut().original?'스티커로 돌아가기':'원본 보기';$('background-fit').disabled=busy||settings.lockBackground;$('background-theme').disabled=busy||running;$('background-all').disabled=busy||running;$('background-favorites').disabled=busy||running;$('scene').setAttribute('aria-busy',String(busy));$('classroom-mode-exit').disabled=busy||running;updateMobileAction();}
+ document.querySelectorAll('#cut-grid button').forEach(b=>b.disabled=busy||running);document.querySelectorAll('#background-grid button').forEach(b=>b.disabled=busy||running||settings.lockBackground);$('all-backgrounds').disabled=$('current-background-only').disabled=busy||running||settings.lockBackground;$('undo').disabled=busy||running||!history.past.length;$('redo').disabled=busy||running||!history.future.length;renderFinishControls();$('capture').textContent=`${settings.timer}초 후 촬영`;$('auto-capture').textContent=`${project.count||4}컷 연속 촬영`;$('capture').disabled=!stream||cameraConnecting||busy||running;$('start-camera').hidden=!!stream;$('start-camera').disabled=cameraConnecting||busy||running;$('keep-camera').disabled=busy||running;$('stop-camera').hidden=!stream;$('switch-camera').disabled=!stream||cameraConnecting||busy||running;$('auto-capture').disabled=!stream||cameraConnecting||busy||running||!!replaceTarget;$('stop-capture').hidden=!running;$('photo-input').disabled=busy||running;$('photo-browse').disabled=busy||running;for(const id of ['go-camera','demo-fill','teacher-open','add-person','retake','clear-cut','next-cut','show-finish','new-group'])$(id).disabled=busy||running;document.querySelectorAll('[data-step]').forEach(b=>b.disabled=busy||running);renderOriginalControls();$('background-fit').disabled=busy||settings.lockBackground;$('background-theme').disabled=busy||running;$('background-all').disabled=busy||running;$('background-favorites').disabled=busy||running;$('scene').setAttribute('aria-busy',String(busy));$('classroom-mode-exit').disabled=busy||running;updateMobileAction();}
 function renderItemControls(){
   const peopleCount = personItems(cut()).length;
   $('people-limit').textContent = '인물 ' + peopleCount + '/' + MAX_STICKERS;
@@ -496,6 +498,7 @@ function schedulePreview() {
     if (previous) previous.width = previous.height = 0;
     preview.setAttribute('role', 'img');
     preview.setAttribute('aria-label', output.count + '컷 저장본 미리보기');
+    preview.dataset.cutCount = String(output.count);
     $('full-preview').replaceChildren(preview);
     renderPaperPreview();
   }), 120);
@@ -598,9 +601,102 @@ function beep(){if(!settings.sound)return;try{audio=audio||new(window.AudioConte
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function countdown(epoch){$('countdown').hidden=false;try{for(let i=settings.timer;i>0;i--){if(epoch!==cancelEpoch||!stream)throw new DOMException('촬영 중단','AbortError');$('countdown').textContent=i;beep();await delay(1000);}if(epoch!==cancelEpoch||!stream)throw new DOMException('촬영 중단','AbortError');}finally{$('countdown').hidden=true;}}
 function cameraFrame(v, mirror){const c=document.createElement('canvas');const w=v.videoWidth,h=v.videoHeight;if(!w||!h)throw Error('카메라가 준비된 뒤 다시 찍어 주세요.');const sw=Math.min(w,h*4/3),sh=Math.min(h,w*3/4),scale=Math.min(1,1600/sw);c.width=Math.round(sw*scale);c.height=Math.round(sh*scale);const ctx=c.getContext('2d');if(mirror){ctx.translate(c.width,0);ctx.scale(-1,1);}ctx.drawImage(v,(w-sw)/2,(h-sh)/2,sw,sh,0,0,c.width,c.height);return c;}
-async function processSource(source,{index=active,target=replaceTarget,original=false,epoch=cancelEpoch,mode=sourceMode,interactive=true}={}){let result=null,sourceOnly=original;while(!sourceOnly){try{setBusy(true);const m=await segmentPhoto(source);if(epoch!==cancelEpoch)return false;const image=makeCutout(source,m.mask,m.w,m.h);result={image,w:image.width,h:image.height,source,mask:m.mask,mw:m.w,mh:m.h};break;}catch(e){if(epoch!==cancelEpoch)return false;if(!interactive)throw e;setBusy(false);const choice=await errorChoice(e.message);if(choice==='cancel')return false;if(choice==='original'){sourceOnly=true;break;}resetSegmenter();}}
-if(epoch!==cancelEpoch)return false;if(sourceOnly)result={image:source,w:source.width,h:source.height,source};const c=project.cuts[index];if(!target&&mode!=='replace-cut'&&personItems(c).length>=MAX_STICKERS){setBusy(false);throw Error('한 컷에는 인물 3개까지 넣을 수 있어요. 기존 인물을 선택해 바꾸거나 다른 컷을 골라 주세요.');}record();const id=uid();assets.set(id,result);const oldIndex=target?c.items.findIndex(i=>i.id===target):-1;const old=c.items[oldIndex];if(mode==='replace-cut')c.items=[];else if(old)c.items=c.items.filter(i=>i.id!==target);const newItem=addItem(c,id,result.w,result.h);if(old){newItem.x=old.x;newItem.y=old.y;newItem.rotation=old.rotation;newItem.scale=old.scale*(assets.get(old.assetId)?.w||result.w)/result.w;newItem.border=old.border;newItem.softness=old.softness;c.items.splice(oldIndex,0,c.items.pop());}c.original=sourceOnly&&personItems(c).length===1;selected=newItem.id;active=index;replaceTarget=null;sourceMode='append';setBusy(false);cleanAssets();return true;}
+async function prepareSourceAsset(source,{original,epoch,interactive}) {
+  if (original) return {asset:{image:source,w:source.width,h:source.height,source},original:true};
+  while (epoch === cancelEpoch) {
+    setBusy(true);
+    try {
+      const mask = await segmentPhoto(source);
+      if (epoch !== cancelEpoch) return null;
+      const image = makeCutout(source,mask.mask,mask.w,mask.h);
+      return {asset:{image,w:image.width,h:image.height,source,mask:mask.mask,mw:mask.w,mh:mask.h},original:false};
+    } catch (error) {
+      if (epoch !== cancelEpoch) return null;
+      if (!interactive) throw error;
+      setBusy(false);
+      const choice = await errorChoice(error.message);
+      if (epoch !== cancelEpoch || choice === 'cancel') return null;
+      if (choice === 'original') return {asset:{image:source,w:source.width,h:source.height,source},original:true};
+      resetSegmenter();
+    }
+  }
+  return null;
+}
+
+async function prepareCutDraft(source,{index,target,original = false,epoch = cancelEpoch,mode = 'append',interactive = true}) {
+  const previous = project.cuts[index];
+  const next = structuredClone(previous);
+  const oldIndex = target ? next.items.findIndex(item => item.id === target) : -1;
+  const old = next.items[oldIndex];
+  if (!old && mode !== 'replace-cut' && personItems(next).length >= MAX_STICKERS) {
+    throw Error('한 컷에는 인물 3개까지 넣을 수 있어요. 기존 인물을 선택해 바꾸거나 다른 컷을 골라 주세요.');
+  }
+  const result = await prepareSourceAsset(source,{original,epoch,interactive});
+  if (!result || epoch !== cancelEpoch) return null;
+  const {asset} = result;
+  const id = uid();
+  if (mode === 'replace-cut') next.items = [];
+  else if (old) next.items.splice(oldIndex,1);
+  const sticker = addItem(next,id,asset.w,asset.h);
+  if (old) {
+    const originalWidth = assets.get(old.assetId)?.w || asset.w;
+    Object.assign(sticker,{x:old.x,y:old.y,rotation:old.rotation,scale:old.scale*originalWidth/asset.w,border:old.border,softness:old.softness});
+    next.items.splice(oldIndex,0,next.items.pop());
+  }
+  next.original = result.original && personItems(next).length === 1;
+  if (next.original) next.originalPerson = sticker.id;
+  else delete next.originalPerson;
+  return {previous,next,asset,id,stickerId:sticker.id};
+}
+
+function commitCutDraft(index,draft) {
+  if (project.cuts[index] !== draft.previous) return false;
+  record();
+  assets.set(draft.id,draft.asset);
+  project.cuts[index] = draft.next;
+  selected = draft.stickerId;
+  active = index;
+  replaceTarget = null;
+  sourceMode = 'append';
+  setBusy(false);
+  cleanAssets();
+  return true;
+}
+
+async function processSource(source,{index=active,target=replaceTarget,original=false,epoch=cancelEpoch,mode=sourceMode,interactive=true}={}) {
+  const draft = await prepareCutDraft(source,{index,target,original,epoch,mode,interactive});
+  return !!draft && epoch === cancelEpoch && commitCutDraft(index,draft);
+}
 function reviewCapture(source){return new Promise(resolve=>{const d=$('capture-review'),c=$('capture-review-image');c.width=source.width;c.height=source.height;c.getContext('2d').drawImage(source,0,0);let done=false;const finish=value=>{if(done)return;done=true;d.close();d.removeEventListener('cancel',cancel);c.width=c.height=0;resolve(value);};const cancel=e=>{e.preventDefault();finish(false);};$('capture-retake').onclick=()=>finish(false);$('capture-use').onclick=()=>finish(true);d.addEventListener('cancel',cancel);d.showModal();});}
+async function captureShot(epoch) {
+  await countdown(epoch);
+  const source = cameraFrame($('camera'),facing==='user');
+  beep();
+  return source;
+}
+
+async function shootReplacement(index,target,epoch) {
+  while (epoch === cancelEpoch && stream) {
+    const source = await captureShot(epoch);
+    $('camera').hidden = true;
+    const draft = await prepareCutDraft(source,{index,target,epoch});
+    if (!draft || epoch !== cancelEpoch) return false;
+    const comparisonAssets = new Map(assets).set(draft.id,draft.asset);
+    const choice = await showCutComparison({
+      title:'바꿀 사진을 비교해 보세요',
+      afterLabel:draft.next.original ? '새 원본 결과' : '새 합성 결과',
+      before:canvas => drawCut(canvas,draft.previous,assets,backgrounds),
+      after:canvas => drawCut(canvas,draft.next,comparisonAssets,backgrounds),
+      retake:true,epoch
+    });
+    if (epoch !== cancelEpoch) return false;
+    if (choice === 'apply') return commitCutDraft(index,draft);
+    if (choice !== 'retry') return false;
+    $('camera').hidden = false;
+  }
+  return false;
+}
+
 async function shoot(auto = false) {
   if (busy || running || cameraConnecting || !stream) return;
   const indices = auto ? project.cuts.slice(0, project.count || 4).flatMap((current, index) =>
@@ -619,15 +715,15 @@ async function shoot(auto = false) {
     for (const index of indices) {
       active = index;
       await render();
-      await countdown(epoch);
-      let source = cameraFrame($('camera'), facing === 'user');
-      beep();
+      if (!auto && replaceTarget) {
+        captured = await shootReplacement(index,replaceTarget,epoch);
+        break;
+      }
+      let source = await captureShot(epoch);
       if (!auto) {
         while (!await reviewCapture(source)) {
           if (epoch !== cancelEpoch || !stream) return;
-          await countdown(epoch);
-          source = cameraFrame($('camera'), facing === 'user');
-          beep();
+          source = await captureShot(epoch);
         }
         if (epoch !== cancelEpoch) return;
       }
@@ -649,6 +745,7 @@ async function shoot(auto = false) {
     } else {
       stopCamera();
       step = next < 0 ? 'finish' : personItems(cut()).length ? 'edit' : 'camera';
+      if (step !== 'camera') { replaceTarget = null; sourceMode = 'append'; }
     }
     render();
     scrollToStage();
@@ -815,9 +912,21 @@ function drawImportReport() {
     retry.className = 'button compact';
     retry.textContent = '파일 다시 고르기';
     retry.setAttribute('aria-label', failure.name + ' 다시 고르기');
+    retry.dataset.missingCut = String(index < 0);
     retry.disabled = busy || running || index < 0;
     retry.onclick = () => { pendingImportRetry = failure; $('import-retry-input').click(); };
     li.append(description, retry);
+    if (failure.originalFile) {
+      const original = document.createElement('button');
+      original.type = 'button';
+      original.className = 'button compact';
+      original.textContent = '이 사진을 원본으로 넣기';
+      original.setAttribute('aria-label', failure.name + ' 원본으로 넣기');
+      original.dataset.missingCut = String(index < 0);
+      original.disabled = busy || running || index < 0;
+      original.onclick = safe(() => retryImport(failure,failure.originalFile,true));
+      li.append(original);
+    }
     return li;
   }));
 }
@@ -827,9 +936,10 @@ function forgetImportReport() {
   drawImportReport();
 }
 
-async function importPhoto(file, index, options) {
+async function importPhoto(file, index, options, onDecoded) {
   setBusy(true, '사진을 준비하고 있어요');
   const source = await readPhoto(file);
+  onDecoded?.();
   if (options.epoch !== cancelEpoch) return false;
   return processSource(source, {...options, index});
 }
@@ -862,9 +972,10 @@ on('photo-input', 'change', safe(async event => {
   try {
     for (const entry of selection.plan) {
       const current = project.cuts[entry.index];
+      let decoded = false;
       try {
         if (entry.result === 'invalid') throw Error(entry.error);
-        const ok = await importPhoto(entry.file, entry.index, options);
+        const ok = await importPhoto(entry.file, entry.index, options, () => { decoded = true; });
         if (epoch !== cancelEpoch) return;
         if (ok) report.added++;
         else if (selection.batch) throw Error('사진을 넣지 못했어요.');
@@ -873,7 +984,8 @@ on('photo-input', 'change', safe(async event => {
         report.failures.push({
           name:entry.file.name, reason:error.message || '사진을 처리할 수 없어요.',
           cutId:current.id, items:current.items.map(item => item.id),
-          original:options.original, target:options.target, mode:options.mode
+          original:options.original, target:options.target, mode:options.mode,
+          originalFile: decoded && !options.original ? entry.file : null
         });
       }
     }
@@ -888,22 +1000,31 @@ on('import-retry-input', 'change', safe(async event => {
   event.target.value = '';
   const failure = pendingImportRetry;
   pendingImportRetry = null;
-  if (!file || !importReport?.failures.includes(failure) || busy || running) return;
+  if (file) await retryImport(failure,file);
+}));
+
+async function retryImport(failure,file,useOriginal = false) {
+  if (!importReport?.failures.includes(failure) || busy || running) return;
   const index = project.cuts.slice(0,project.count).findIndex(current => current.id === failure.cutId);
   const unchanged = index >= 0 && project.cuts[index].items.map(item => item.id).join() === failure.items.join();
   if (!unchanged) { message('이 컷을 편집했어요. 컷을 선택한 뒤 사진을 불러와 주세요.'); return; }
   stopCamera();
   const epoch = ++cancelEpoch;
   let added = false;
+  let decoded = false;
   try {
-    added = await importPhoto(file,index,{epoch,original:failure.original,target:failure.target,mode:failure.mode});
+    added = await importPhoto(file,index,{epoch,original:useOriginal||failure.original,target:failure.target,mode:failure.mode},() => { decoded = true; });
     if (epoch !== cancelEpoch || !added) return;
     importReport.added++;
     importReport.failures = importReport.failures.filter(current => current !== failure);
   } catch (error) {
-    if (epoch === cancelEpoch) { failure.name = file.name; failure.reason = error.message; }
+    if (epoch === cancelEpoch) {
+      failure.name = file.name;
+      failure.reason = error.message;
+      failure.originalFile = decoded && !failure.original ? file : null;
+    }
   } finally { finishImport(epoch,added); }
-}));
+}
 document.querySelectorAll('[data-step]').forEach(button => {
   button.onclick = () => {
     if (button.dataset.step === 'edit' && !personItems(cut()).length) captureCut(active);
@@ -925,7 +1046,7 @@ function leaveExample() {
   if (busy || running) return;
   mutate(() => {
     for (const current of project.cuts) {
-      if (personItems(current)[0]?.example) current.original = false;
+      if (originalPerson(current)?.example) current.original = false;
       current.items = current.items.filter(sticker => !sticker.example);
     }
     const next = nextEmptyCut(project,active);
@@ -940,7 +1061,90 @@ function leaveExample() {
 }
 on('leave-example', 'click', leaveExample);
 on('leave-example-finish', 'click', leaveExample);
-on('toggle-original','click',safe(async()=>{if(cut().original){const it=personItems(cut())[0],a=assets.get(it.assetId);if(!a.mask&&!it.example){await processSource(a.source,{target:it.id});render();return;}}mutate(()=>cut().original=!cut().original);}));on('clear-cut','click',safe(async()=>{if(await confirmAction('이 컷을 비울까요?','다른 컷은 그대로 남아요. 실행 취소로 되돌릴 수 있어요.'))mutate(()=>{cut().items=[];cut().original=false;selected=null;});}));
+function originalReference() {
+  const people = personItems(cut());
+  if (cut().original) return originalPerson(cut());
+  return people.find(person => person.id === selected && assets.get(person.assetId)?.source)
+    || people.find(person => assets.get(person.assetId)?.source);
+}
+
+function renderOriginalControls() {
+  const source = assets.get(originalReference()?.assetId)?.source;
+  $('compare-original').disabled = busy || running || !source;
+  $('toggle-original').disabled = busy || running || (!source && !cut().original);
+  $('toggle-original').textContent = cut().original ? '스티커 합성으로 돌아가기' : '이 컷을 원본으로 바꾸기';
+}
+
+for (const [id,result] of [['cut-compare-keep','keep'],['cut-compare-retry','retry'],['cut-compare-apply','apply']]) {
+  on(id, 'click', () => $('cut-compare-dialog').close(result));
+}
+
+async function showCutComparison({title, afterLabel, before, after, retake = false, epoch = cancelEpoch}) {
+  const dialog = $('cut-compare-dialog');
+  const first = $('cut-compare-before');
+  const second = $('cut-compare-after');
+  const temp = [first,second].map(canvas => {
+    const copy = document.createElement('canvas');
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    return copy;
+  });
+  try {
+    await Promise.all([before(temp[0]), after(temp[1])]);
+    if (epoch !== cancelEpoch) return 'keep';
+    for (const [index,canvas] of [first,second].entries()) {
+      const context = canvas.getContext('2d');
+      context.clearRect(0,0,canvas.width,canvas.height);
+      context.drawImage(temp[index],0,0);
+    }
+  } finally { for (const canvas of temp) canvas.width = canvas.height = 0; }
+  $('cut-compare-title').textContent = title;
+  $('cut-compare-after-label').textContent = afterLabel;
+  $('cut-compare-keep').textContent = retake ? '기존 컷 유지' : '닫기';
+  $('cut-compare-retry').hidden = $('cut-compare-apply').hidden = !retake;
+  dialog.returnValue = 'keep';
+  return new Promise(resolve => {
+    dialog.addEventListener('close', () => {
+      for (const canvas of [first,second]) canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
+      resolve(dialog.returnValue);
+    }, {once:true});
+    dialog.showModal();
+  });
+}
+
+on('compare-original','click',safe(async () => {
+  const reference = originalReference();
+  const source = assets.get(reference?.assetId)?.source;
+  if (!source || busy || running) return;
+  const current = cut();
+  const number = personItems(current).indexOf(reference) + 1;
+  setBusy(true, '원본을 비교하고 있어요');
+  try {
+    await showCutComparison({
+      title:'원본과 비교', afterLabel:'인물 ' + number + ' 원본',
+      before:canvas => drawCut(canvas,current,assets,backgrounds),
+      after:canvas => cover(canvas.getContext('2d'),source,0,0,canvas.width,canvas.height)
+    });
+  } finally { setBusy(false); }
+}));
+
+on('toggle-original','click',safe(async () => {
+  if (busy || running) return;
+  const current = cut();
+  const reference = originalReference();
+  const asset = assets.get(reference?.assetId);
+  if (current.original) {
+    if (asset?.source && !asset.mask && personItems(current).length === 1) {
+      try { await processSource(asset.source,{target:reference.id}); }
+      finally { setBusy(false); render(); }
+    } else mutate(() => { current.original = false; delete current.originalPerson; });
+    return;
+  }
+  if (!asset?.source) return;
+  const number = personItems(current).indexOf(reference) + 1;
+  if (!await confirmAction('이 컷을 원본으로 바꿀까요?', '인물 ' + number + '의 원본 사진을 이 컷의 저장본에 적용해요. 편집 화면에서 스티커 합성으로 돌아갈 수 있어요.', {yesLabel:'원본 적용'})) return;
+  mutate(() => { current.original = true; current.originalPerson = reference.id; });
+}));on('clear-cut','click',safe(async()=>{if(await confirmAction('이 컷을 비울까요?','다른 컷은 그대로 남아요. 실행 취소로 되돌릴 수 있어요.'))mutate(()=>{cut().items=[];cut().original=false;selected=null;});}));
 on('undo','click',()=>{project=history.undo(project);active=Math.min(active,(project.count||4)-1);selected=null;cleanAssets();render();});on('redo','click',()=>{project=history.redo(project);active=Math.min(active,(project.count||4)-1);selected=null;cleanAssets();render();});
 on('background-fit','change',e=>mutate(()=>cut().fit=e.target.value));
 on('demo-fill','click',safe(async()=>{if(isDirty()&&!await confirmAction('예시 네컷으로 체험할까요?','현재 사진은 실행 취소로 되돌릴 수 있어요. 예시는 실제 인물 오리기 결과가 아니에요.'))return;const image=await loadImage('./assets/demo-person.svg');mutate(()=>{project.cuts.forEach((c,i)=>{c.background=['space','ocean','forest','party'][i];c.items=[];c.original=false;const id=uid();assets.set(id,{image,w:image.naturalWidth,h:image.naturalHeight});const it=addItem(c,id,image.naturalWidth,image.naturalHeight,'person',true);it.rotation=[-9,8,-5,6][i];});active=0;step='edit';selected=cut().items[0].id;});message('예시 실루엣으로 체험 중이에요. 실제 사진은 사진 찍기에서 넣어 주세요.');}));
@@ -1037,9 +1241,58 @@ async function exportPng({small = false, view = false, partial = false} = {}) {
 }
 
 function clearPrint(){if(printUrl){URL.revokeObjectURL(printUrl);printUrl=null;}$('print-image').removeAttribute('src');$('print-sheet').querySelectorAll('.print-copy').forEach(x=>x.remove());}
-on('print-photo','click',safe(async()=>{if(busy||!isComplete(project))return;stopCamera();setBusy(true,'인쇄할 사진을 준비하고 있어요');let url;try{const canvas=await renderProject(project,assets,backgrounds,1,logo);const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('인쇄 이미지를 만들지 못했어요.')),'image/png'));canvas.width=canvas.height=0;clearPrint();url=URL.createObjectURL(blob);printUrl=url;const image=$('print-image');await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=()=>reject(Error('인쇄 이미지를 불러오지 못했어요.'));image.src=url;});const sheet=$('print-sheet'),paper=getPrintLayout($('print-paper').value,$('print-copies').value),copies=paper.copies;sheet.dataset.copies=String(copies);for(let i=1;i<copies;i++){const copy=image.cloneNode();copy.removeAttribute('id');copy.className='print-copy';copy.alt='';sheet.append(copy);}let style=$('print-page-style');if(!style){style=document.createElement('style');style.id='print-page-style';document.head.append(style);}style.textContent=`@page{size:${paper.cssSize};margin:${paper.margin}mm} @media print{#print-sheet{height:${paper.height - 2 * paper.margin}mm;gap:${paper.gap}mm}}`;setBusy(false);const release=()=>{clearPrint();window.removeEventListener('afterprint',release);};window.addEventListener('afterprint',release);window.print();}catch(e){clearPrint();message('인쇄를 준비하지 못했어요. PNG 저장 후 기기의 사진 앱에서 인쇄해 주세요.');}finally{setBusy(false);}}));
+function canvasBlob(canvas,type,quality) {
+  return new Promise((resolve,reject) => canvas.toBlob(blob => {
+    if (blob) resolve(blob);
+    else reject(Error('인쇄 이미지를 만들지 못했어요.'));
+  },type,quality));
+}
+
+on('print-photo','click',safe(async () => {
+  const output = photographedProject(project);
+  if (busy || running || !output.count) return;
+  const epoch = cancelEpoch;
+  const paper = getPrintLayout($('print-paper').value,$('print-copies').value);
+  stopCamera();
+  setBusy(true,'인쇄할 사진을 준비하고 있어요');
+  let canvas;
+  try {
+    canvas = await renderProject(output,assets,backgrounds,1,logo);
+    const blob = await canvasBlob(canvas,'image/png');
+    if (epoch !== cancelEpoch) return;
+    clearPrint();
+    printUrl = URL.createObjectURL(blob);
+    const image = $('print-image');
+    await new Promise((resolve,reject) => {
+      image.onload = resolve;
+      image.onerror = () => reject(Error('인쇄 이미지를 불러오지 못했어요.'));
+      image.src = printUrl;
+    });
+    if (epoch !== cancelEpoch) return;
+    const sheet = $('print-sheet');
+    sheet.dataset.copies = String(paper.copies);
+    for (let i=1;i<paper.copies;i++) {
+      const copy = image.cloneNode();
+      copy.removeAttribute('id');
+      copy.className = 'print-copy';
+      copy.alt = '';
+      sheet.append(copy);
+    }
+    $('print-page-style').textContent = '@page{size:' + paper.cssSize + ';margin:' + paper.margin + 'mm} @media print{#print-sheet{height:' + (paper.height - 2*paper.margin) + 'mm;gap:' + paper.gap + 'mm}}';
+    setBusy(false);
+    window.addEventListener('afterprint',clearPrint,{once:true});
+    window.print();
+  } catch {
+    clearPrint();
+    if (epoch === cancelEpoch) message('인쇄를 준비하지 못했어요. PDF 저장으로 다시 시도해 주세요.');
+  } finally {
+    if (canvas) canvas.width = canvas.height = 0;
+    if (epoch === cancelEpoch) setBusy(false);
+  }
+}));
 on('download-pdf', 'click', safe(async () => {
-  if (busy || !isComplete(project)) return;
+  const output = photographedProject(project);
+  if (busy || running || !output.count) return;
   const paperKey = $('print-paper').value;
   const paper = getPrintLayout(paperKey, $('print-copies').value);
   const epoch = cancelEpoch;
@@ -1047,13 +1300,13 @@ on('download-pdf', 'click', safe(async () => {
   setBusy(true, '인쇄용 PDF를 만들고 있어요');
   let canvas;
   try {
-    canvas = await renderProject(project, assets, backgrounds, 1, logo);
-    const jpeg = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', .95));
-    if (!jpeg) throw Error('인쇄 이미지를 만들지 못했어요.');
+    canvas = await renderProject(output, assets, backgrounds, 1, logo);
+    const jpeg = await canvasBlob(canvas,'image/jpeg',.95);
     if (epoch !== cancelEpoch) return;
     const pdf = createPrintPdf(jpeg, canvas.width, canvas.height, paper);
     const url = URL.createObjectURL(pdf);
-    downloadImage(url, '상상네컷_인쇄_' + (paperKey === 'photo-4x6' ? '4x6' : paper.cssSize) + '.pdf');
+    const suffix = output.count === project.count ? '' : '_' + output.count + '컷';
+    downloadImage(url, '상상네컷_인쇄_' + (paperKey === 'photo-4x6' ? '4x6' : paper.cssSize) + suffix + '.pdf');
     setTimeout(() => URL.revokeObjectURL(url), 60000);
     message('인쇄용 PDF 저장을 요청했어요. 기기에서 파일을 확인해 주세요.');
   } finally {
@@ -1305,7 +1558,7 @@ on('save-preset','click',safe(async()=>{try{await saveSettings({...presetOf(proj
 on('delete-preset','click',safe(async()=>{if(!await confirmAction('기본 시작 설정을 지울까요?','자동으로 불러오는 기본 시작 설정을 삭제해요. 이름 붙인 수업 설정과 현재 사진은 유지돼요.'))return;await clearSaved();presetStatus='기본 시작 설정을 삭제했어요. 현재 화면의 설정은 유지돼요.';$('preset-status').textContent=presetStatus;}));
 setStatusListener(state=>{prepared=state==='ready';$('model-status').textContent=state==='ready'?'✓ 인물 오리기 준비 완료':state==='loading'?'인물 오리기 준비 중':'인물 오리기 다시 준비';$('model-status').classList.toggle('ready',prepared);});
 on('model-status','click',safe(async()=>{if(prepared){message('사진을 찍거나 불러오면 인물을 오려 드려요.');return;}resetSegmenter();await initSegmenter();message('인물 오리기가 준비됐어요.');}));
-document.addEventListener('visibilitychange',()=>{if(document.hidden){if(running){cancelEpoch++;resetSegmenter();setBusy(false);}stopCamera();}});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){if(running){cancelEpoch++;if($('cut-compare-dialog').open)$('cut-compare-dialog').close('keep');resetSegmenter();setBusy(false);}stopCamera();}});
 window.addEventListener('pagehide',()=>{cancelEpoch++;renderVersion++;clearTimeout(previewTimer);if($('brush-dialog').open)$('brush-dialog').close();resetSegmenter();stopCamera();clearPrint();assets.clear();history.clear();project.cuts.forEach(c=>c.items=[]);document.querySelectorAll('#scene,#cut-grid canvas,#full-preview canvas,#brush-canvas,#paper-preview').forEach(c=>c.getContext('2d')?.clearRect(0,0,c.width,c.height));$('full-preview').replaceChildren();forgetImportReport();clearExportImage();requestedExport=null;});window.addEventListener('pageshow',event=>{if(event.persisted){active=0;selected=null;step='background';render();initSegmenter().catch(()=>{});}});
 window.addEventListener('beforeunload',e=>{if(isDirty()){e.preventDefault();e.returnValue='';}});
 async function boot() {
@@ -1334,7 +1587,7 @@ async function boot() {
   initSegmenter().catch(() => message('인물 오리기 준비를 완료하지 못했어요. 다시 준비하거나 원본 모드로 사용할 수 있어요.'));
 }
 boot();
-import {enableBrush,checkReadiness} from './extras.mjs?v=scrapbook-flow';
+import {enableBrush,checkReadiness} from './extras.mjs?v=classroom-review';
 enableBrush({getItem:item,getAsset:id=>assets.get(id),notify:message,apply:mask=>{const it=item(),a=currentAsset();if(!it||!a?.mask)throw Error('인물을 다시 선택해 주세요.');const image=makeCutout(a.source,mask,a.mw,a.mh,it.softness),id=uid();record();assets.set(id,{...a,mask:mask.slice(),image,w:image.width,h:image.height});it.scale*=a.w/image.width;it.assetId=id;cleanAssets();render();}});
 const readinessActions={
  '브라우저 기본 기능':{hint:'지원되는 최신 브라우저에서 다시 열어 주세요.'},
@@ -1352,7 +1605,55 @@ on('check-ready','click',safe(async()=>{$('ready-dialog').showModal();$('ready-s
 import {createBundle,validateBundle} from './preset-bundle.mjs?v=background-gallery';
 on('bundle-export','click',safe(async()=>{const b=await createBundle({...presetOf(project,settings),lockBackground:settings.lockBackground},backgrounds.filter(x=>!x.builtIn),logoBlob);const url=URL.createObjectURL(b),a=document.createElement('a');a.href=url;a.download='상상네컷_수업설정.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);message('설정 묶음을 만들었어요. 학생 촬영 사진은 포함되지 않아요.');}));
 on('bundle-input','change',safe(async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;if(file.size>70*1024*1024)throw Error('설정 파일은 70MB 이하여야 해요.');let data;try{data=JSON.parse(await file.text());}catch{throw Error('설정 파일을 읽을 수 없어요.');}const bundle=validateBundle(data);for(const bg of bundle.backgrounds)await readPhoto(bg.blob);const newLogo=bundle.logo?await readPhoto(bundle.logo):null;if(!await confirmAction('수업 설정을 가져올까요?','현재 배경과 문구, 촬영 설정을 가져온 내용으로 바꿉니다. 촬영 사진은 유지되며 편집 취소 기록은 비워집니다. 기기에 영구 저장하려면 설정 저장을 눌러 주세요.'))return;applyLessonSnapshot(bundle, newLogo, {replaceBackgrounds:true});markLesson(null);message('설정을 가져왔어요. 촬영 사진은 그대로 유지돼요.');}));
-on('offline-prepare','click',safe(async()=>{if(!('serviceWorker' in navigator)){message('이 브라우저에서는 오프라인 준비를 지원하지 않아요.');return;}const button=$('offline-prepare');button.disabled=true;$('offline-status').textContent='필요한 파일을 저장하고 있어요. 인터넷 연결을 유지해 주세요.';try{const reg=await navigator.serviceWorker.register('./sw.js');const ready=await Promise.race([navigator.serviceWorker.ready,new Promise((_,reject)=>setTimeout(()=>reject(Error('오프라인 준비가 지연되고 있어요.')),20000))]);const worker=await currentOfflineWorker(reg);if(!worker)throw Error('새 버전의 오프라인 기능을 준비하지 못했어요. 잠시 후 다시 시도해 주세요.');const result=await new Promise((resolve,reject)=>{const channel=new MessageChannel();const timer=setTimeout(()=>reject(Error('파일 저장에 시간이 오래 걸려요. 다시 시도해 주세요.')),180000);channel.port1.onmessage=e=>{clearTimeout(timer);channel.port1.close();resolve(e.data);};worker.postMessage({type:'PREPARE'},[channel.port2]);});if(!result.ok)throw Error(result.message);$('offline-status').textContent='기본 배경과 모델 파일을 이 브라우저에 저장했어요. 인터넷을 끄고 미리 시험해 주세요. 직접 추가한 배경은 기기에 설정을 저장해야 유지돼요.';}catch(e){$('offline-status').textContent='오프라인 파일을 모두 저장하지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요. '+e.message;}finally{button.disabled=false;}}));
+function showOfflineProgress(done,total) {
+  const progress = $('offline-progress');
+  progress.hidden = !total;
+  if (total) { progress.max = total; progress.value = done; }
+}
+
+function prepareOffline(worker) {
+  return new Promise((resolve,reject) => {
+    const channel = new MessageChannel();
+    let timer;
+    const wait = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        channel.port1.close();
+        reject(Error('파일 저장에 시간이 오래 걸려요. 다시 누르면 남은 파일부터 받아요.'));
+      },180000);
+    };
+    channel.port1.onmessage = ({data}) => {
+      showOfflineProgress(data.done,data.total);
+      if (data.type === 'PROGRESS') {
+        $('offline-status').textContent = data.done + '/' + data.total + '개 준비 · 남은 파일을 받고 있어요.';
+        wait();
+        return;
+      }
+      clearTimeout(timer);
+      channel.port1.close();
+      resolve(data);
+    };
+    wait();
+    worker.postMessage({type:'PREPARE'},[channel.port2]);
+  });
+}
+
+on('offline-prepare','click',safe(async () => {
+  if (!('serviceWorker' in navigator)) { message('이 브라우저에서는 오프라인 준비를 지원하지 않아요.'); return; }
+  const button = $('offline-prepare');
+  const status = $('offline-status');
+  button.disabled = true;
+  status.textContent = '현재 버전에 준비된 파일을 확인하고 있어요.';
+  try {
+    const registration = await navigator.serviceWorker.register('./sw.js');
+    const worker = await currentOfflineWorker(registration);
+    if (!worker) throw Error('새 버전의 오프라인 기능이 준비되지 않았어요. 잠시 후 다시 눌러 주세요.');
+    const result = await prepareOffline(worker);
+    if (result.ok) status.textContent = result.done + '/' + result.total + '개 준비 완료. 인터넷을 끄고 시험할 수 있어요.';
+    else status.textContent = result.done + '/' + result.total + '개 준비. 다시 누르면 남은 파일부터 받아요. ' + (result.message || '');
+  } catch (error) { status.textContent = error.message || '다시 누르면 남은 파일부터 받아요.'; }
+  finally { button.disabled = false; }
+}));
 
 let adjusting=false;
 for(const name of ['brightness','contrast','saturation']){const control=$(`adjust-${name}`);control.addEventListener('pointerdown',()=>{if(!control.disabled){record();adjusting=true;}});control.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End'].includes(e.key)&&!adjusting){record();adjusting=true;}});control.addEventListener('input',()=>{if(!adjusting){record();adjusting=true;}cut().adjustment={...normalizeAdjustment(cut().adjustment),[name]:Number(control.value)};$(name+'-value').textContent=control.value+'%';drawCut($('scene'),cut(),assets,backgrounds,{selected}).catch(e=>message(e.message));renderCutButtons();});control.addEventListener('change',()=>{adjusting=false;render();});}
@@ -1374,25 +1675,26 @@ function renderFinishControls() {
   $('full-preview-empty').hidden = !!filled;
   $('save-status').textContent = complete
     ? `${count}컷이 모두 준비됐어요. PNG로 저장하거나 인쇄해 주세요.`
-    : filled ? `${filled}컷을 찍었어요. 찍은 컷만 저장하거나 ${remaining}컷 더 찍을 수 있어요.`
+    : filled ? `${filled}컷을 찍었어요. 찍은 컷을 저장하거나 인쇄할 수 있어요.`
       : `${remaining}컷을 찍으면 저장할 수 있어요.`;
   $('fill-missing').hidden = complete;
   $('fill-missing').disabled = busy || running;
   $('export-options').hidden = !complete;
-  $('finish-print-actions').hidden = !complete;
+  $('finish-print-actions').hidden = !filled;
   $('download-partial').hidden = complete || !filled;
   $('download-partial').disabled = busy || running;
   $('download-partial').textContent = '찍은 ' + filled + '컷만 저장';
-  for (const id of ['download', 'download-small', 'export-view', 'print-photo', 'download-pdf']) {
+  for (const id of ['download', 'download-small', 'export-view']) {
     $(id).disabled = busy || running || !complete;
   }
+  for (const id of ['print-photo','download-pdf']) $(id).disabled = busy || running || !filled;
+  if (!filled) clearPaperPreview();
   const saved = exportIsCurrent(requestedExport);
   $('export-status').hidden = !complete && !saved;
   $('export-status').textContent = saved
     ? (requestedExport.partial ? '찍은 ' + requestedExport.count + '컷 PNG' : requestedExport.small ? '작은 PNG' : '고화질 PNG')
       + ' 저장을 요청했어요. 기기에서 파일을 확인해 주세요.'
     : '고화질 또는 작은 PNG로 저장하거나, 이미지를 직접 열 수 있어요.';
-  if (!complete) clearPaperPreview();
 }
 
 function updateMobileAction() {
@@ -1432,8 +1734,33 @@ on('mobile-action', 'click', () => {
 });
 mobileLayout.addEventListener('change', placeBackgroundPicker);
 
-async function offlineState(){try{if(!('serviceWorker' in navigator))return{prepared:false};const reg=await navigator.serviceWorker.getRegistration('./');const worker=reg?.active;if(!worker)return{prepared:false};return await new Promise(resolve=>{const channel=new MessageChannel();const timer=setTimeout(()=>{channel.port1.close();resolve({prepared:false});},1500);channel.port1.onmessage=e=>{clearTimeout(timer);channel.port1.close();const result=e.data;resolve({prepared:!!result?.prepared&&result.version===OFFLINE_VERSION});};worker.postMessage({type:'STATUS'},[channel.port2]);});}catch{return{prepared:false};}}
-async function refreshOfflineNotice(){const state=await offlineState();$('offline-status').textContent=state.prepared?'이 버전의 오프라인 파일이 준비되어 있어요. 실제 기기에서 인터넷 없이 시험해 주세요.':'이 버전의 오프라인 파일이 준비되지 않았거나 확인되지 않았어요. 오프라인 사용 전 인터넷에 연결해 준비해 주세요.';}
+async function offlineState() {
+  try {
+    if (!('serviceWorker' in navigator)) return {prepared:false};
+    const worker = (await navigator.serviceWorker.getRegistration('./'))?.active;
+    if (!worker) return {prepared:false};
+    return await new Promise(resolve => {
+      const channel = new MessageChannel();
+      const timer = setTimeout(() => { channel.port1.close(); resolve({prepared:false}); },1500);
+      channel.port1.onmessage = ({data}) => {
+        clearTimeout(timer);
+        channel.port1.close();
+        resolve(data?.version === OFFLINE_VERSION ? data : {prepared:false});
+      };
+      worker.postMessage({type:'STATUS'},[channel.port2]);
+    });
+  } catch { return {prepared:false}; }
+}
+
+async function refreshOfflineNotice() {
+  const state = await offlineState();
+  if ($('offline-prepare').disabled) return;
+  showOfflineProgress(state.done,state.total);
+  $('offline-status').textContent = state.prepared
+    ? state.done + '/' + state.total + '개 준비 완료. 인터넷을 끄고 시험할 수 있어요.'
+    : state.done ? state.done + '/' + state.total + '개 준비. 남은 파일을 이어서 받아 주세요.'
+      : '오프라인 사용 전 인터넷에 연결해 이 버전의 파일을 준비해 주세요.';
+}
 function clearPaperPreview() {
   const paper = $('paper-preview');
   paper.hidden = true;
@@ -1444,15 +1771,15 @@ function renderPaperPreview() {
   const paper = getPrintLayout($('print-paper').value, $('print-copies').value);
   $('print-summary').textContent = (paper.label ? '4×6인치' : paper.cssSize) + ' · ' + paper.copies + '장';
   const photo = $('full-preview').querySelector('canvas');
-  const complete = isComplete(project);
-  $('paper-unavailable').hidden = complete;
-  if (!complete || !photo || step !== 'finish') {
+  const count = photographedProject(project).count;
+  $('paper-unavailable').hidden = !!count;
+  if (!count || Number(photo?.dataset.cutCount) !== count || step !== 'finish') {
     clearPaperPreview();
     return;
   }
   const preview = $('paper-preview');
   drawPaperPreview(preview, photo, paper);
-  preview.setAttribute('aria-label', `${paper.label || paper.cssSize + ' 용지'}에 완성 사진 ${paper.copies}장 예상 배치`);
+  preview.setAttribute('aria-label', `${paper.label || paper.cssSize + ' 용지'}에 ${count}컷 사진 ${paper.copies}장 예상 배치`);
   preview.hidden = false;
 }
 for(const id of ['print-paper','print-copies'])on(id,'change',renderPaperPreview);

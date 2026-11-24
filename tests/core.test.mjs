@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {newProject,addItem,arrangePeople,personItems,History,exportSpec,getPrintLayout,presetOf,hitItem,moveItem,isComplete,nextEmptyCut,emptyCutIndices,photographedProject,swapVisibleCuts} from '../dist/core.mjs';
+import {newProject,addItem,arrangePeople,personItems,History,exportSpec,getPrintLayout,presetOf,hitItem,moveItem,isComplete,nextEmptyCut,emptyCutIndices,photographedProject,swapVisibleCuts,originalPerson} from '../dist/core.mjs';
 import {createPrintPdf} from '../dist/print-pdf.mjs';
 test('deleting a middle cut preserves every other cut identity and content',()=>{const p=newProject(),ids=p.cuts.map(c=>c.id);p.cuts.forEach((c,i)=>addItem(c,'photo'+i,400,600));p.cuts[1].items=[];assert.deepEqual(p.cuts.map(c=>c.id),ids);assert.equal(p.cuts[2].items[0].assetId,'photo2');assert.equal(isComplete(p),false);});
 test('person limit applies to people rather than decorative items',()=>{const c=newProject().cuts[0];for(let i=0;i<8;i++)addItem(c,'heart',180,180,'decoration');for(let i=0;i<3;i++)addItem(c,'person',500,600);assert.equal(personItems(c).length,3);assert.throws(()=>addItem(c,'extra',500,600),/3개/);});
@@ -115,4 +115,15 @@ test('moving a visible cut keeps its photo, background and adjustments together 
   assert.equal(swapVisibleCuts(project, 2, 3), false);
   assert.equal(project.cuts[3], hidden);
   assert.equal(history.undo(project).cuts[0].id, first.id);
+});
+
+test('a cut can explicitly use a selected person’s original photo', () => {
+  const cut = newProject().cuts[0];
+  const first = addItem(cut,'first',300,400);
+  const second = addItem(cut,'second',300,400);
+  assert.equal(originalPerson(cut),first);
+  cut.originalPerson = second.id;
+  assert.equal(originalPerson(cut),second);
+  cut.items = [first];
+  assert.equal(originalPerson(cut),first);
 });

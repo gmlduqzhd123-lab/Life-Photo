@@ -659,6 +659,23 @@ body[data-classroom-mode] .classroom-mode-label { white-space: nowrap; }
 @media (max-width: 400px) {
   #finish-print-actions .button { flex: 1 1 auto; }
 }
+.cut-comparison {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 8px;
+}
+.cut-comparison figure { margin: 0; min-width: 0; }
+.cut-comparison figcaption { margin-bottom: 4px; color: var(--blue); font-size: .88rem; font-weight: 700; }
+.cut-comparison canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+#cut-compare-dialog .dialog-end { flex-wrap: wrap; }
+#brush-mode { margin-block: 7px; font-weight: 700; color: var(--blue); }
+#offline-progress { display: block; width: min(100%, 280px); margin-block: 5px 12px; accent-color: var(--blue); }
 
 /* GitHub Pages sharing and installation controls. */
 .ys-credit { flex-basis: 100%; margin: 0; text-align: center; }

@@ -6,6 +6,10 @@ export const clamp=(n,min,max)=>Math.min(max,Math.max(min,n));
 export const FRAME_STYLES = ['classic', 'grid-paper', 'tape', 'paper-label'];
 export function newProject(preset={}){return {count:Number(preset.count)||4,cuts:Array.from({length:4},(_,i)=>({id:uid(),background:preset.backgrounds?.[i]||'space',adjustment:{brightness:100,contrast:100,saturation:100},fit:'cover',original:false,items:[]})),layout:preset.layout||'strip',frame:preset.frame||'#7862da',frameStyle:FRAME_STYLES.includes(preset.frameStyle)?preset.frameStyle:'classic',caption:preset.caption??'우리의 반짝이는 순간',subtitle:preset.subtitle??'함께라서 더 특별한 오늘',date:preset.date??new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul'}).format(new Date()),school:preset.school||'',logo:preset.logo||null,decorations:[]};}
 export function personItems(cut){return cut.items.filter(x=>x.kind==='person');}
+export function originalPerson(cut) {
+  const people = personItems(cut);
+  return people.find(person => person.id === cut.originalPerson) || people[0];
+}
 export const defaultStickerScale=(w,h)=>Math.min(780/w,760/h,2);
 export function addItem(cut,assetId,w,h,kind='person',example=false){if(kind==='person'&&personItems(cut).length>=MAX_STICKERS)throw Error('한 컷에 인물 스티커는 3개까지 넣을 수 있어요.');const scale=defaultStickerScale(w,h);const item={id:uid(),assetId,kind,x:600,y:475,scale,rotation:0,border:kind==='person',softness:0.5,example};cut.items.push(item);return item;}
 export function arrangePeople(cut, assets) {
