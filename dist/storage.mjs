@@ -2,6 +2,7 @@ const DB = 'imagine-four-settings';
 const STORE = 'settings';
 const STARTUP = 'preset';
 const ACTIVE_CLASSROOM = 'active-classroom';
+const ACTIVE_EVENT = 'active-event';
 const LESSON_PREFIX = 'lesson:';
 
 function openDatabase() {
@@ -70,6 +71,50 @@ export const clearClassroom = () => deleteKey(ACTIVE_CLASSROOM);
 export function saveClassroom(preset, backgrounds, logo = null) {
   const data = snapshot(preset, backgrounds, logo);
   return accessStore('readwrite', store => store.put(data, ACTIVE_CLASSROOM));
+}
+
+export const readEvent = () => readKey(ACTIVE_EVENT);
+
+export function startEvent(event, preset, backgrounds, logo) {
+  const data = {...snapshot(preset,backgrounds,logo),event};
+  return accessStore('readwrite', (store,result,fail) => {
+    const request = store.add(data,ACTIVE_EVENT);
+    request.onsuccess = () => result(event);
+    request.onerror = e => {
+      e.preventDefault();
+      fail(request.error?.name === 'ConstraintError'
+        ? Error('이미 이 기기에서 진행 중인 행사가 있어요. 화면을 새로고침해 주세요.') : request.error);
+    };
+  });
+}
+
+function updateEvent(expected, apply) {
+  return accessStore('readwrite', (store,result,fail) => {
+    const request = store.get(ACTIVE_EVENT);
+    request.onsuccess = () => {
+      const saved = request.result;
+      if (saved?.event?.id !== expected.id || saved.event.completed !== expected.completed) {
+        fail(Error('다른 창에서 행사 진행이 바뀌었어요. 현재 사진을 저장한 뒤 화면을 새로고침해 주세요.'));
+        return;
+      }
+      apply(store,saved,result);
+    };
+  });
+}
+
+export function advanceEvent(expected) {
+  return updateEvent(expected,(store,saved,result) => {
+    const event = {...saved.event,completed:Math.min(saved.event.total,saved.event.completed+1)};
+    store.put({...saved,event},ACTIVE_EVENT);
+    result(event);
+  });
+}
+
+export function finishEvent(expected) {
+  return updateEvent(expected,(store,_saved,result) => {
+    store.delete(ACTIVE_EVENT);
+    result(true);
+  });
 }
 
 function lessonRange() {
