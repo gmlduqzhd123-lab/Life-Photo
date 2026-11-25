@@ -5,9 +5,9 @@ export function loadImage(src){if(loaded.has(src))return loaded.get(src);const p
 export function forgetImage(src){loaded.delete(src);}
 export function cover(ctx,img,x,y,w,h,fit='cover'){const iw=img.naturalWidth||img.width,ih=img.naturalHeight||img.height;const ratio=(fit==='contain'?Math.min:Math.max)(w/iw,h/ih),dw=iw*ratio,dh=ih*ratio;ctx.drawImage(img,x+(w-dw)/2,y+(h-dh)/2,dw,dh);}
 export async function backgroundImage(id,backgrounds){return loadImage(backgrounds.find(b=>b.id===id)?.url||'./assets/backgrounds/space.svg');}
-export function drawItem(ctx,item,assets,adjustment){const a=assets.get(item.assetId);if(!a)return;ctx.save();ctx.translate(item.x,item.y);ctx.rotate(item.rotation*Math.PI/180);ctx.scale(item.scale,item.scale);if(item.border){ctx.save();ctx.shadowColor='#fff';ctx.shadowBlur=0;const d=7/item.scale;for(let i=0;i<12;i++){ctx.shadowOffsetX=Math.cos(i*Math.PI/6)*d;ctx.shadowOffsetY=Math.sin(i*Math.PI/6)*d;ctx.drawImage(a.image,-a.w/2,-a.h/2,a.w,a.h);}ctx.restore();}ctx.drawImage(item.kind==='person'?adjustedImage(a,adjustment):a.image,-a.w/2,-a.h/2,a.w,a.h);ctx.restore();}
-export async function drawCut(canvas,cut,assets,backgrounds,{selected=null,placeholder=false}={}){const ctx=canvas.getContext('2d');const bg=await backgroundImage(cut.background,backgrounds);ctx.save();ctx.clearRect(0,0,canvas.width,canvas.height);ctx.scale(canvas.width/CUT_W,canvas.height/CUT_H);ctx.fillStyle='#e7e6fa';ctx.fillRect(0,0,CUT_W,CUT_H);const originals=cut.items.filter(i=>i.kind==='person');if(cut.original&&originals.length){const a=assets.get(originalPerson(cut).assetId);if(a?.source)cover(ctx,adjustedImage(a,cut.adjustment,true),0,0,CUT_W,CUT_H);else cover(ctx,bg,0,0,CUT_W,CUT_H,cut.fit);}else cover(ctx,bg,0,0,CUT_W,CUT_H,cut.fit);
-ctx.save();ctx.beginPath();ctx.rect(0,0,CUT_W,CUT_H);ctx.clip();for(const item of cut.items){if(cut.original&&item.kind==='person')continue;drawItem(ctx,item,assets,cut.adjustment);}ctx.restore();
+export function drawItem(ctx,item,assets,adjustment,outlineScale=1){const a=assets.get(item.assetId);if(!a)return;ctx.save();ctx.translate(item.x,item.y);ctx.rotate(item.rotation*Math.PI/180);ctx.scale(item.scale,item.scale);if(item.border){ctx.save();ctx.shadowColor='#fff';ctx.shadowBlur=0;const d=7*outlineScale/item.scale;for(let i=0;i<12;i++){ctx.shadowOffsetX=Math.cos(i*Math.PI/6)*d;ctx.shadowOffsetY=Math.sin(i*Math.PI/6)*d;ctx.drawImage(a.image,-a.w/2,-a.h/2,a.w,a.h);}ctx.restore();}ctx.drawImage(item.kind==='person'?adjustedImage(a,adjustment):a.image,-a.w/2,-a.h/2,a.w,a.h);ctx.restore();}
+export async function drawCut(canvas,cut,assets,backgrounds,{selected=null,placeholder=false,outlineScale=1}={}){const ctx=canvas.getContext('2d');const bg=await backgroundImage(cut.background,backgrounds);ctx.save();ctx.clearRect(0,0,canvas.width,canvas.height);ctx.scale(canvas.width/CUT_W,canvas.height/CUT_H);ctx.fillStyle='#e7e6fa';ctx.fillRect(0,0,CUT_W,CUT_H);const originals=cut.items.filter(i=>i.kind==='person');if(cut.original&&originals.length){const a=assets.get(originalPerson(cut).assetId);if(a?.source)cover(ctx,adjustedImage(a,cut.adjustment,true),0,0,CUT_W,CUT_H);else cover(ctx,bg,0,0,CUT_W,CUT_H,cut.fit);}else cover(ctx,bg,0,0,CUT_W,CUT_H,cut.fit);
+ctx.save();ctx.beginPath();ctx.rect(0,0,CUT_W,CUT_H);ctx.clip();for(const item of cut.items){if(cut.original&&item.kind==='person')continue;drawItem(ctx,item,assets,cut.adjustment,outlineScale);}ctx.restore();
 if(placeholder&&!cut.items.length){ctx.fillStyle='#ffffffaa';ctx.beginPath();ctx.arc(600,390,64,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.ellipse(600,640,150,160,0,Math.PI,0);ctx.fill();ctx.font='600 25px sans-serif';ctx.textAlign='center';ctx.fillStyle='#ffffff';ctx.shadowColor='#121b47';ctx.shadowBlur=7;ctx.fillText('여기에 우리의 순간을 담아요',600,770);ctx.shadowBlur=0;}
 if(selected&&!cut.original){const item=cut.items.find(i=>i.id===selected),a=item&&assets.get(item.assetId);if(a){ctx.save();ctx.translate(item.x,item.y);ctx.rotate(item.rotation*Math.PI/180);ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.setLineDash([10,8]);const w=a.w*item.scale,h=a.h*item.scale;ctx.strokeRect(-w/2-12,-h/2-12,w+24,h+24);ctx.restore();}}ctx.restore();}
 function fitText(ctx,text,maxWidth,start=54){let size=start;do{ctx.font=`700 ${size}px "Malgun Gothic", sans-serif`;if(ctx.measureText(text).width<=maxWidth)return;}while(--size>24);}
@@ -102,11 +102,12 @@ export async function renderProject(project, assets, backgrounds, scale = 1, log
   ctx.scale(scale, scale);
   paintFrame(ctx, spec, project);
   const cutCanvas = document.createElement('canvas');
-  cutCanvas.width = CUT_W;
-  cutCanvas.height = CUT_H;
+  const cutScale = Math.min(1,scale);
+  cutCanvas.width = Math.max(1,Math.round(CUT_W * cutScale));
+  cutCanvas.height = Math.max(1,Math.round(CUT_H * cutScale));
   try {
     for (const [index, rect] of spec.cells.entries()) {
-      await drawCut(cutCanvas, project.cuts[index], assets, backgrounds);
+      await drawCut(cutCanvas, project.cuts[index], assets, backgrounds, {outlineScale:cutScale});
       paintPhotoMount(ctx, rect, project.frameStyle);
       ctx.drawImage(cutCanvas, rect.x, rect.y, rect.w, rect.h);
       if (project.frameStyle === 'tape') paintTape(ctx, rect);

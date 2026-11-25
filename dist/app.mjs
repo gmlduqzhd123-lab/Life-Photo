@@ -1,13 +1,15 @@
 import {BACKGROUND_FILTERS,BUILT_IN_BACKGROUNDS,listBackgrounds,searchBackgrounds} from './background-catalog.mjs?v=mobile-ux';
-import {eventGroupNumber,eventFilename} from './event-mode.mjs?v=classroom-event';
+import {changeEventGroup,eventGroupNumber,eventFilename,eventFilenamePart} from './event-mode.mjs?v=event-workflow';
 import {normalizeAdjustment} from './photo-adjust.mjs';
-import {createPrintPdf} from './print-pdf.mjs?v=classroom-output';
+import {createPrintPdf} from './print-pdf.mjs?v=event-workflow';
 import {paintStroke} from './brush.mjs';
-import {CUT_W,CUT_H,MISSIONS,uid,clamp,newProject,personItems,addItem,arrangePeople,exportSpec,hitItem,moveItem,History,isComplete,getPrintLayout,presetOf,nextEmptyCut,defaultStickerScale,photographedProject,MAX_STICKERS,emptyCutIndices,swapVisibleCuts,originalPerson} from './core.mjs?v=classroom-review';
-import {drawCut,renderProject,loadImage,makeDecoration,forgetImage,drawPaperPreview,cover} from './render.mjs?v=classroom-review';
-import {readPhoto,inspectPhoto,makeCutout} from './image-tools.mjs?v=classroom-recovery';
+import {CUT_W,CUT_H,MISSIONS,uid,clamp,newProject,personItems,addItem,arrangePeople,exportSpec,hitItem,moveItem,History,isComplete,getPrintLayout,presetOf,nextEmptyCut,defaultStickerScale,photographedProject,MAX_STICKERS,emptyCutIndices,swapVisibleCuts,originalPerson} from './core.mjs?v=event-workflow';
+import {drawCut,renderProject,loadImage,makeDecoration,forgetImage,drawPaperPreview,cover} from './render.mjs?v=event-workflow';
+import {readPhoto,inspectPhoto,makeCutout,canvasBlob} from './image-tools.mjs?v=event-workflow';
 import {initSegmenter,segmentPhoto,resetSegmenter,setStatusListener} from './segment-client.mjs';
-import {readSaved,saveSettings,clearSaved,listLessons,getLesson,saveLesson,deleteLesson,readClassroom,clearClassroom,saveClassroom,readEvent,startEvent,advanceEvent,finishEvent} from './storage.mjs?v=classroom-event';
+import {readSaved,saveSettings,clearSaved,listLessons,getLesson,saveLesson,deleteLesson,readClassroom,clearClassroom,saveClassroom,readEvent,startEvent,advanceEvent,finishEvent} from './storage.mjs?v=event-workflow';
+import {setupBatchPrint} from './batch-print.mjs?v=event-workflow';
+import {EVENT_TEMPLATES,builtInEventPreset} from './event-templates.mjs?v=event-workflow';
 
 const $=id=>document.getElementById(id),on=(id,event,fn)=>$(id).addEventListener(event,fn);
 const assets = new Map();
@@ -20,6 +22,7 @@ let project=newProject(),active=0,selected=null,step='background',history=new Hi
 let printUrl=null,cameraEpoch=0,busy=false,cancelEpoch=0,stream=null,facing='user',running=false,replaceTarget=null,sourceMode='append',toastTimer,logo=null,logoBlob=null,presetStatus='',renderVersion=0,previewTimer,prepared=false,downloadUrl=null,gesture=null;
 let preparedExport = null;
 let requestedExport = null;
+let exportFailure = null;
 const pointers = new Map();
 const classroomModeKey = 'booth-classroom-mode';
 let classroomMode = false;
@@ -30,6 +33,7 @@ let groupStartPreset = null;
 let eventSession = null;
 let eventPreset = null;
 let eventWorking = false;
+let templateWorking = false;
 let importReport = null;
 let pendingImportRetry = null;
 try { classroomMode = localStorage.getItem(classroomModeKey) === 'on'; } catch {}
@@ -39,7 +43,7 @@ let cameraConnecting = false;
 let cameraDelayed = false;
 let cameraWaitTimer;
 let previewRevision = 0;
-const OFFLINE_VERSION='imagine-four-offline-v16';let favorites=new Set();try{favorites=new Set(JSON.parse(localStorage.getItem('booth-favorite-backgrounds')||'[]'));}catch{}
+const OFFLINE_VERSION='imagine-four-offline-v17';let favorites=new Set();try{favorites=new Set(JSON.parse(localStorage.getItem('booth-favorite-backgrounds')||'[]'));}catch{}
 const cut=()=>project.cuts[active],item=()=>cut().items.find(x=>x.id===selected),currentAsset=()=>item()&&assets.get(item().assetId);
 function message(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,5500);}
 function safe(fn){return async(...args)=>{try{await fn(...args);}catch(e){if(e.name!=='AbortError')message(e.message||'다시 시도해 주세요.');}};}
@@ -1178,11 +1182,35 @@ function exportIsCurrent(entry) {
     && entry.eventId === eventSession?.id && entry.eventGroup === (eventSession ? eventGroupNumber(eventSession) : undefined);
 }
 
+function outputSnapshot(output, options = {}) {
+  return {
+    project:JSON.stringify(project),logo,count:output.count,
+    eventId:eventSession?.id,eventGroup:eventSession ? eventGroupNumber(eventSession) : undefined,...options
+  };
+}
+
+function outputRequestLabel(entry) {
+  if (entry.type === 'pdf') return '인쇄용 PDF';
+  if (entry.small) return '작은 PNG';
+  return entry.partial ? '찍은 ' + entry.count + '컷 PNG' : '고화질 PNG';
+}
+
+function datedPngName(variant = '') {
+  const date = new Intl.DateTimeFormat('sv-SE', {timeZone:'Asia/Seoul'}).format(new Date());
+  return ['상상네컷',date,Date.now().toString(36).slice(-5),variant].filter(Boolean).join('_') + '.png';
+}
+
 function downloadImage(url, name) {
   const link = document.createElement('a');
   link.href = url;
   link.download = name;
   link.click();
+}
+
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  try { downloadImage(url,name); }
+  finally { setTimeout(() => URL.revokeObjectURL(url),60000); }
 }
 
 function clearExportImage() {
@@ -1198,6 +1226,7 @@ function requestPngDownload() {
   if (!downloadUrl || !exportIsCurrent(preparedExport)) return;
   downloadImage(downloadUrl, preparedExport.name);
   requestedExport = {...preparedExport};
+  exportFailure = null;
   $('export-dialog-status').textContent = '저장을 요청했어요. 기기에서 파일을 확인해 주세요.';
   renderFinishControls();
 }
@@ -1218,10 +1247,7 @@ async function exportPng({small = false, view = false, partial = false} = {}) {
     return true;
   }
   const epoch = cancelEpoch;
-  const snapshot = {
-    project:JSON.stringify(project),logo,small,partial,count:output.count,
-    eventId:eventSession?.id,eventGroup:eventSession ? eventGroupNumber(eventSession) : undefined
-  };
+  const snapshot = outputSnapshot(output, {small,partial,type:'png'});
   stopCamera();
   setBusy(true, '네컷 사진을 만들고 있어요');
   let canvas;
@@ -1229,24 +1255,23 @@ async function exportPng({small = false, view = false, partial = false} = {}) {
     const spec = exportSpec(output.layout, output.count);
     const scale = small ? Math.min(1, 2400 / Math.max(spec.w, spec.h)) : 1;
     canvas = await renderProject(output, assets, backgrounds, scale, logo);
-    const blob = await new Promise((resolve, reject) => {
-      canvas.toBlob(b => b ? resolve(b) : reject(Error('PNG 생성 실패')), 'image/png');
-    });
+    const blob = await canvasBlob(canvas,'image/png');
     if (epoch !== cancelEpoch || !exportIsCurrent(snapshot)) return;
     clearExportImage();
     downloadUrl = URL.createObjectURL(blob);
-    const date = new Intl.DateTimeFormat('sv-SE', {timeZone:'Asia/Seoul'}).format(new Date());
-    const variation = partial ? output.count + '컷' : small ? '작게' : '완성';
-    const name = eventFilename(eventSession,variation,'png') ||
-      '상상네컷_' + date + '_' + Date.now().toString(36).slice(-5) + (partial || small ? '_' + variation : '') + '.png';
+    const variation = [partial ? output.count + '컷' : '',small ? '작게' : ''].filter(Boolean).join('_');
+    const name = eventFilename(eventSession,variation || '완성','png') || datedPngName(variation);
     preparedExport = {...snapshot,name};
     if (view) showExportImage();
     else requestPngDownload();
     return true;
   } catch {
-    if (epoch === cancelEpoch) message(small
-      ? '작은 PNG를 만들지 못했어요. 기기 공간을 확인하고 다시 시도해 주세요.'
-      : '고화질 PNG를 만들지 못했어요. 작은 PNG 저장을 이용해 주세요.');
+    if (epoch === cancelEpoch && exportIsCurrent(snapshot)) {
+      exportFailure = {...snapshot,message:small
+        ? '작은 PNG를 만들지 못했어요. 다시 시도하거나 인쇄용 PDF를 저장해 주세요.'
+        : '고화질 PNG를 만들지 못했어요. 작은 PNG로 저장해 보세요.'};
+      $('export-alternatives').open = true;
+    }
   } finally {
     if (canvas) canvas.width = canvas.height = 0;
     if (epoch === cancelEpoch) setBusy(false);
@@ -1254,13 +1279,6 @@ async function exportPng({small = false, view = false, partial = false} = {}) {
 }
 
 function clearPrint(){if(printUrl){URL.revokeObjectURL(printUrl);printUrl=null;}$('print-image').removeAttribute('src');$('print-sheet').querySelectorAll('.print-copy').forEach(x=>x.remove());}
-function canvasBlob(canvas,type,quality) {
-  return new Promise((resolve,reject) => canvas.toBlob(blob => {
-    if (blob) resolve(blob);
-    else reject(Error('인쇄 이미지를 만들지 못했어요.'));
-  },type,quality));
-}
-
 on('print-photo','click',safe(async () => {
   const output = photographedProject(project);
   if (busy || running || !output.count) return;
@@ -1303,12 +1321,13 @@ on('print-photo','click',safe(async () => {
     if (epoch === cancelEpoch) setBusy(false);
   }
 }));
-on('download-pdf', 'click', safe(async () => {
+async function exportPdf() {
   const output = photographedProject(project);
   if (busy || running || !output.count) return;
   const paperKey = $('print-paper').value;
   const paper = getPrintLayout(paperKey, $('print-copies').value);
   const epoch = cancelEpoch;
+  const snapshot = outputSnapshot(output, {type:'pdf'});
   stopCamera();
   setBusy(true, '인쇄용 PDF를 만들고 있어요');
   let canvas;
@@ -1317,42 +1336,77 @@ on('download-pdf', 'click', safe(async () => {
     const jpeg = await canvasBlob(canvas,'image/jpeg',.95);
     if (epoch !== cancelEpoch) return;
     const pdf = createPrintPdf(jpeg, canvas.width, canvas.height, paper);
-    const url = URL.createObjectURL(pdf);
     const suffix = output.count === project.count ? '' : '_' + output.count + '컷';
     const variant = '인쇄_' + (paperKey === 'photo-4x6' ? '4x6' : paper.cssSize) + suffix;
-    downloadImage(url,eventFilename(eventSession,variant,'pdf') || '상상네컷_' + variant + '.pdf');
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-    message('인쇄용 PDF 저장을 요청했어요. 기기에서 파일을 확인해 주세요.');
+    downloadBlob(pdf,eventFilename(eventSession,variant,'pdf') || '상상네컷_' + variant + '.pdf');
+    requestedExport = snapshot;
+    exportFailure = null;
+    return true;
+  } catch {
+    if (epoch === cancelEpoch && exportIsCurrent(snapshot)) {
+      exportFailure = {...snapshot,message:'PDF를 만들지 못했어요. 다시 시도하거나 PNG를 저장해 주세요.'};
+    }
   } finally {
     if (canvas) canvas.width = canvas.height = 0;
-    setBusy(false);
+    if (epoch === cancelEpoch) setBusy(false);
   }
-}));
+}
+on('download-pdf','click',exportPdf);
 on('download','click',()=>exportPng());
 on('download-partial','click',()=>exportPng({partial:true}));
-on('download-small','click',()=>exportPng({small:true}));
-on('export-view','click',()=>exportPng({view:true}));
+on('download-small','click',()=>exportPng({small:true,partial:!isComplete(project)}));
+on('export-view','click',()=>exportPng({view:true,partial:!isComplete(project)}));
 on('export-download','click',requestPngDownload);
+
+on('cut-download','click',safe(async () => {
+  const index = Number($('cut-download-select').value);
+  const current = project.cuts[index];
+  if (busy || running || !current || index >= project.count || !personItems(current).length) return;
+  const variant = String(index + 1).padStart(2,'0') + '번컷';
+  const name = eventFilename(eventSession,variant,'png') || datedPngName(variant);
+  const epoch = cancelEpoch;
+  const canvas = document.createElement('canvas');
+  canvas.width = CUT_W;
+  canvas.height = CUT_H;
+  setBusy(true,'선택한 컷을 준비하고 있어요');
+  try {
+    await drawCut(canvas,current,assets,backgrounds);
+    const blob = await canvasBlob(canvas,'image/png');
+    if (epoch === cancelEpoch) {
+      downloadBlob(blob,name);
+      message('선택한 컷 PNG 저장을 요청했어요.');
+    }
+  } finally {
+    canvas.width = canvas.height = 0;
+    if (epoch === cancelEpoch) setBusy(false);
+  }
+}));
+
+setupBatchPrint({downloadBlob, filename:() => (eventSession
+  ? eventFilenamePart(eventSession.title) : '상상네컷') + '_모아인쇄_A4.pdf'});
+
 function syncHandoff() {
-  $('handoff-save').disabled = busy;
-  $('handoff-checked').disabled = busy;
+  for (const id of ['handoff-save','handoff-small','handoff-pdf','handoff-checked']) $(id).disabled = busy || eventWorking;
   $('handoff-keep-style').disabled = busy;
   $('handoff-discard').disabled = busy;
   $('handoff-next').disabled = busy || eventWorking || !$('handoff-checked').checked;
-  for (const id of ['handoff-save','handoff-checked']) { if (eventWorking) $(id).disabled = true; }
   for (const button of $('handoff-dialog').querySelectorAll('[data-close]')) button.disabled = eventWorking;
 }
 
 on('handoff-checked', 'change', syncHandoff);
 on('handoff-dialog','cancel',event => { if (eventWorking) event.preventDefault(); });
-on('handoff-save', 'click', safe(async () => {
+async function handoffOutput(type) {
   const partial = !isComplete(project);
-  $('handoff-status').textContent = 'PNG를 준비하고 있어요.';
-  const saved = await exportPng({partial});
+  $('handoff-status').textContent = '저장 파일을 준비하고 있어요.';
+  const saved = type === 'pdf' ? await exportPdf() : await exportPng({partial,small:type === 'small'});
+  if (!saved && type !== 'pdf') $('handoff-small').hidden = false;
   $('handoff-status').textContent = saved
-    ? '저장을 요청했어요. 기기에서 파일을 열어 확인해 주세요.'
-    : 'PNG를 만들지 못했어요. 다시 시도하거나 사진 화면으로 돌아가 주세요.';
-}));
+    ? outputRequestLabel(requestedExport) + ' 저장을 요청했어요. 기기에서 파일을 열어 확인해 주세요.'
+    : exportFailure?.message || '파일을 만들지 못했어요. 다시 시도해 주세요.';
+}
+on('handoff-save','click',()=>handoffOutput('png'));
+on('handoff-small','click',()=>handoffOutput('small'));
+on('handoff-pdf','click',()=>handoffOutput('pdf'));
 
 on('new-group', 'click', safe(async () => {
   const {count} = photographedProject(project);
@@ -1364,14 +1418,17 @@ on('new-group', 'click', safe(async () => {
     $('handoff-keep-style').checked = !classroomMode && !eventSession;
     $('handoff-style-option').hidden = !!eventSession;
     $('handoff-event-note').hidden = !eventSession;
-    $('handoff-event-note').textContent = eventSession && group === eventSession.total
+    const finalGroup = eventSession && eventSession.completed === eventSession.total - 1;
+    $('handoff-event-note').textContent = finalGroup
       ? '마지막 모둠의 저장이나 인쇄를 확인해 주세요.' : '다음 모둠은 행사 시작 때 저장한 교사 설정으로 열려요.';
     $('handoff-title').textContent = eventSession ? group + '모둠 사진을 확인했나요?' : '다음 모둠을 시작할까요?';
-    $('handoff-next').textContent = eventSession && group === eventSession.total ? '행사 완료' : '다음 모둠 시작';
+    $('handoff-next').textContent = finalGroup ? '행사 완료' : eventSession && !changeEventGroup(eventSession,'complete').current
+      ? '완료하고 보류 모둠 보기' : '다음 모둠 시작';
     $('handoff-discard').hidden = !partial || !!eventSession;
-    $('handoff-save').textContent = partial ? '찍은 ' + count + '컷만 저장' : '고화질 PNG 저장하기';
+    $('handoff-save').textContent = partial ? '찍은 ' + count + '컷만 저장' : '사진 저장';
+    $('handoff-small').hidden = !exportIsCurrent(exportFailure) || exportFailure.type !== 'png';
     $('handoff-status').textContent = exportIsCurrent(requestedExport)
-      ? '기기에 저장된 PNG를 확인해 주세요.' : partial
+      ? outputRequestLabel(requestedExport) + ' 저장을 요청했어요. 기기에서 파일을 확인해 주세요.' : partial
         ? '찍은 ' + count + '컷을 PNG로 저장할 수 있어요.' : '사진을 저장하거나 인쇄한 뒤 확인해 주세요.';
     syncHandoff();
     $('handoff-dialog').showModal();
@@ -1400,7 +1457,10 @@ on('handoff-next', 'click', safe(async () => {
     $('handoff-dialog').close();
     syncClassroomMode();
     await resetForNextGroup(false);
-    if (!eventGroupNumber(eventSession)) $('event-open').focus({preventScroll:true});
+    if (!eventGroupNumber(eventSession)) {
+      $('event-open').focus({preventScroll:true});
+      if (eventSession.completed < eventSession.total) $('event-open').click();
+    }
     return;
   }
   const keepStyle = $('handoff-keep-style').checked;
@@ -1425,6 +1485,8 @@ async function resetForNextGroup(keepStyle) {
   clearPrint();
   clearExportImage();
   requestedExport = null;
+  exportFailure = null;
+  $('export-alternatives').open = false;
   forgetImportReport();
   history.clear();
   assets.clear();
@@ -1445,7 +1507,9 @@ async function resetForNextGroup(keepStyle) {
   step = 'background';
   await render();
   scrollToStage();
-  message(eventSession && !eventGroupNumber(eventSession) ? '모든 모둠이 완료됐어요.' : '다음 모둠을 위한 준비가 끝났어요.');
+  if (eventSession && !eventGroupNumber(eventSession)) {
+    message(eventSession.completed === eventSession.total ? '모든 모둠이 완료됐어요.' : '행사 현황에서 보류 모둠을 선택해 주세요.');
+  } else message('다음 모둠을 위한 준비가 끝났어요.');
   initSegmenter().catch(() => {});
 }
 let rehearsalEpoch = 0;
@@ -1604,7 +1668,7 @@ on('delete-preset','click',safe(async()=>{if(!await confirmAction('기본 시작
 setStatusListener(state=>{prepared=state==='ready';$('model-status').textContent=state==='ready'?'✓ 인물 오리기 준비 완료':state==='loading'?'인물 오리기 준비 중':'인물 오리기 다시 준비';$('model-status').classList.toggle('ready',prepared);});
 on('model-status','click',safe(async()=>{if(prepared){message('사진을 찍거나 불러오면 인물을 오려 드려요.');return;}resetSegmenter();await initSegmenter();message('인물 오리기가 준비됐어요.');}));
 document.addEventListener('visibilitychange',()=>{if(document.hidden){if(running){cancelEpoch++;if($('cut-compare-dialog').open)$('cut-compare-dialog').close('keep');resetSegmenter();setBusy(false);}stopCamera();}});
-window.addEventListener('pagehide',()=>{cancelEpoch++;renderVersion++;clearTimeout(previewTimer);if($('brush-dialog').open)$('brush-dialog').close();resetSegmenter();stopCamera();clearPrint();assets.clear();history.clear();project.cuts.forEach(c=>c.items=[]);document.querySelectorAll('#scene,#cut-grid canvas,#full-preview canvas,#brush-canvas,#paper-preview').forEach(c=>c.getContext('2d')?.clearRect(0,0,c.width,c.height));$('full-preview').replaceChildren();forgetImportReport();clearExportImage();requestedExport=null;});window.addEventListener('pageshow',event=>{if(event.persisted){active=0;selected=null;step='background';render();initSegmenter().catch(()=>{});}});
+window.addEventListener('pagehide',()=>{cancelEpoch++;renderVersion++;clearTimeout(previewTimer);if($('brush-dialog').open)$('brush-dialog').close();resetSegmenter();stopCamera();clearPrint();assets.clear();history.clear();project.cuts.forEach(c=>c.items=[]);document.querySelectorAll('#scene,#cut-grid canvas,#full-preview canvas,#brush-canvas,#paper-preview').forEach(c=>c.getContext('2d')?.clearRect(0,0,c.width,c.height));$('full-preview').replaceChildren();forgetImportReport();clearExportImage();requestedExport=exportFailure=null;});window.addEventListener('pageshow',event=>{if(event.persisted){active=0;selected=null;step='background';render();initSegmenter().catch(()=>{});}});
 window.addEventListener('beforeunload',e=>{if(isDirty()){e.preventDefault();e.returnValue='';}});
 async function boot() {
   syncClassroomMode();
@@ -1726,7 +1790,7 @@ function renderFinishControls() {
     $('finish-preview-note').textContent = filled ? filled + '컷 PNG와 같은 배열이에요' : '첫 컷을 찍어 보세요';
   $('full-preview-empty').hidden = !!filled;
   $('new-group').hidden = !!eventSession && !filled;
-  $('new-group').textContent = eventSession && eventGroupNumber(eventSession) === eventSession.total ? '마지막 모둠 확인' : '다음 모둠 시작';
+  $('new-group').textContent = eventSession && eventSession.completed === eventSession.total - 1 ? '마지막 모둠 확인' : '다음 모둠 시작';
   $('save-status').textContent = complete
     ? `${count}컷이 모두 준비됐어요. PNG로 저장하거나 인쇄해 주세요.`
     : filled ? `${filled}컷을 찍었어요. 찍은 컷을 저장하거나 인쇄할 수 있어요.`
@@ -1734,21 +1798,29 @@ function renderFinishControls() {
   $('fill-missing').hidden = complete;
   $('fill-missing').disabled = busy || running;
   $('export-options').hidden = !complete;
+  $('export-alternatives').hidden = !filled;
   $('finish-print-actions').hidden = !filled;
   $('download-partial').hidden = complete || !filled;
   $('download-partial').disabled = busy || running;
   $('download-partial').textContent = '찍은 ' + filled + '컷만 저장';
-  for (const id of ['download', 'download-small', 'export-view']) {
-    $(id).disabled = busy || running || !complete;
-  }
+  $('download').disabled = busy || running || !complete;
+  for (const id of ['download-small','export-view','cut-download','cut-download-select']) $(id).disabled = busy || running || !filled;
   for (const id of ['print-photo','download-pdf']) $(id).disabled = busy || running || !filled;
   if (!filled) clearPaperPreview();
   const saved = exportIsCurrent(requestedExport);
-  $('export-status').hidden = !complete && !saved;
-  $('export-status').textContent = saved
-    ? (requestedExport.partial ? '찍은 ' + requestedExport.count + '컷 PNG' : requestedExport.small ? '작은 PNG' : '고화질 PNG')
-      + ' 저장을 요청했어요. 기기에서 파일을 확인해 주세요.'
-    : '고화질 또는 작은 PNG로 저장하거나, 이미지를 직접 열 수 있어요.';
+  const failed = exportIsCurrent(exportFailure);
+  $('export-status').hidden = !saved && !failed;
+  $('export-status').textContent = failed ? exportFailure.message
+    : saved ? outputRequestLabel(requestedExport) + ' 저장을 요청했어요. 기기에서 파일을 확인해 주세요.' : '';
+  const select = $('cut-download-select');
+  const previous = select.value;
+  const filledIndices = Array.from({length:count},(_,index) => index)
+    .filter(index => personItems(project.cuts[index]).length);
+  if ([...select.options].map(option => option.value).join(',') !== filledIndices.join(',')) {
+    select.replaceChildren(...filledIndices.map(index => new Option((index + 1) + '번 컷',String(index))));
+    if (filledIndices.includes(Number(previous)) && previous !== '') select.value = previous;
+  }
+  $('cut-download-tools').hidden = !filled;
 }
 
 function updateMobileAction() {
@@ -1758,7 +1830,7 @@ function updateMobileAction() {
   } else if (step === 'edit') {
     target = 'next-cut';
   } else if (step === 'finish') {
-    target = isComplete(project) ? 'download' : 'fill-missing';
+    target = isComplete(project) ? 'download' : photographedProject(project).count ? 'download-partial' : 'fill-missing';
   }
   const entry = $(target);
   const button = $('mobile-action');
@@ -1770,13 +1842,18 @@ function updateMobileAction() {
   if (target !== 'download') button.parentElement.removeAttribute('data-inline-save-visible');
   button.textContent = cameraConnecting && target === 'start-camera' ? '카메라 연결 중' : entry.textContent;
   button.disabled = entry.disabled || (busy && target !== 'stop-capture');
+  const output = step === 'finish' && ['download','download-partial'].includes(target);
+  $('mobile-output-actions').hidden = !output;
+  $('mobile-pdf').disabled = $('download-pdf').disabled;
+  $('mobile-handoff').disabled = $('new-group').disabled;
+  $('mobile-handoff').hidden = $('new-group').hidden;
 }
 
 if ('IntersectionObserver' in window) {
   const inlineSave = $('download');
   const observer = new IntersectionObserver(([entry]) => {
     const bar = $('mobile-action').parentElement;
-    bar.toggleAttribute('data-inline-save-visible', entry.intersectionRatio === 1 && step === 'finish');
+    bar.toggleAttribute('data-inline-save-visible', entry.intersectionRatio === 1 && step === 'finish' && !eventSession);
   }, {threshold: 1, rootMargin: '0px 0px -68px'});
   observer.observe(inlineSave);
 }
@@ -1786,6 +1863,8 @@ on('mobile-action', 'click', () => {
   const control = $(target);
   if (control && !control.disabled) control.click();
 });
+on('mobile-pdf','click',() => $('download-pdf').click());
+on('mobile-handoff','click',() => $('new-group').click());
 mobileLayout.addEventListener('change', placeBackgroundPicker);
 
 async function offlineState() {
@@ -1842,7 +1921,7 @@ async function currentOfflineWorker(reg){for(let i=0;i<20;i++){const worker=reg.
 
 function restoreEventOptions(preset) {
   for (const [index,current] of project.cuts.entries()) {
-    if (preset.fits?.[index] === 'contain') current.fit = 'contain';
+    current.fit = preset.fits?.[index] === 'contain' ? 'contain' : 'cover';
   }
   $('print-paper').value = preset.printPaper || 'A4';
   $('print-copies').value = preset.printCopies || '1';
@@ -1852,13 +1931,21 @@ function restoreEventOptions(preset) {
   renderPaperPreview();
 }
 
+function currentEventPreset() {
+  return {
+    ...currentLessonPreset(),fits:project.cuts.map(current => current.fit),
+    printPaper:$('print-paper').value,printCopies:$('print-copies').value,
+    allBackgrounds:$('all-backgrounds').checked,keepCamera:$('keep-camera').checked
+  };
+}
+
 function updateEventView() {
   $('event-banner').hidden = !eventSession;
   if (!eventSession) return;
   const {title,total,completed} = eventSession;
   const group = eventGroupNumber(eventSession);
   const stage = {background:'준비 중',camera:'촬영 중',edit:'꾸미기 중',finish:'저장·인쇄 확인'}[step];
-  const current = group ? group + '모둠 · ' + stage : '행사 운영 완료';
+  const current = group ? group + '모둠 · ' + stage : completed === total ? '행사 운영 완료' : '보류 모둠 대기 중';
   const summary = total + '모둠 중 ' + completed + '모둠 완료';
   $('event-name').textContent = title;
   if ($('event-current').textContent !== current) $('event-current').textContent = current;
@@ -1867,14 +1954,76 @@ function updateEventView() {
   $('event-progress').value = completed;
   $('event-dialog-name').textContent = title;
   $('event-dialog-progress').textContent = summary;
-  $('event-dialog-current').textContent = group ? current : '등록한 모든 모둠이 완료됐어요.';
+  const held = eventSession.groups.filter(state => state === 'held').length;
+  $('event-dialog-current').textContent = group
+    ? current + (held ? ' · 보류 ' + held + '모둠' : '')
+    : held ? '보류한 모둠을 선택하면 촬영을 시작할 수 있어요.' : '등록한 모든 모둠이 완료됐어요.';
+}
+
+function renderEventBoard() {
+  const labels = {waiting:'대기',active:'진행 중',done:'완료',held:'보류'};
+  const rows = eventSession.groups.map((state,index) => {
+    const group = index + 1;
+    const row = document.createElement('li');
+    row.className = 'event-group-row';
+    row.dataset.state = state;
+    const name = document.createElement('strong');
+    name.textContent = group + '모둠';
+    const status = document.createElement('span');
+    status.className = 'event-group-status';
+    status.textContent = labels[state];
+    row.append(name,status);
+    if (state === 'waiting' || state === 'held') {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'button compact';
+      button.dataset.group = group;
+      button.textContent = state === 'held' ? '이어서 촬영' : '촬영 시작';
+      button.setAttribute('aria-label',group + '모둠 ' + button.textContent);
+      row.append(button);
+    } else if (state === 'active') row.setAttribute('aria-current','true');
+    return row;
+  });
+  $('event-board').replaceChildren(...rows);
+  $('event-hold').hidden = !eventGroupNumber(eventSession);
+}
+
+function syncEventBoardControls() {
+  for (const button of $('event-dialog').querySelectorAll('button')) button.disabled = eventWorking;
+}
+
+async function moveEventGroup(action, group) {
+  if (!eventSession || eventWorking || busy || running) return;
+  const current = eventGroupNumber(eventSession);
+  if (action === 'hold' && !current) return;
+  eventWorking = true;
+  syncEventBoardControls();
+  try {
+    if (isDirty() && !await confirmAction(
+      current + '모둠의 사진을 비울까요?',
+      '계속하면 현재 컷과 편집 기록을 비워요. 사진을 보관하려면 사진 화면에서 먼저 저장해 주세요.',
+      {yesLabel:'사진을 비우고 이동',noLabel:'현재 모둠 유지'}
+    )) return;
+    eventSession = await advanceEvent(eventSession,action,group);
+    $('event-dialog').close();
+    syncClassroomMode();
+    await resetForNextGroup(false);
+    if (action === 'hold' && eventGroupNumber(eventSession)) message(current + '모둠을 보류했어요.');
+    $('event-open').focus({preventScroll:true});
+    if (!eventGroupNumber(eventSession)) $('event-open').click();
+  } catch (error) {
+    $('event-dialog-current').textContent = error.message || '모둠 진행을 저장하지 못했어요.';
+  } finally {
+    eventWorking = false;
+    syncEventBoardControls();
+  }
 }
 
 on('event-form','submit',safe(async event => {
   event.preventDefault();
   const button = $('event-start');
   const status = $('event-start-status');
-  if (eventWorking || eventSession || busy || running) return;
+  if (eventWorking || templateWorking || eventSession || busy || running) return;
   status.hidden = false;
   if (isDirty()) {
     status.textContent = '현재 사진을 정리한 다음 행사를 시작해 주세요.';
@@ -1886,11 +2035,7 @@ on('event-form','submit',safe(async event => {
     status.textContent = '행사 이름과 1~99 사이의 모둠 수를 입력해 주세요.';
     return;
   }
-  const preset = structuredClone({
-    ...currentLessonPreset(),fits:project.cuts.map(current => current.fit),
-    printPaper:$('print-paper').value,printCopies:$('print-copies').value,
-    allBackgrounds:$('all-backgrounds').checked,keepCamera:$('keep-camera').checked
-  });
+  const preset = structuredClone(currentEventPreset());
   eventWorking = button.disabled = true;
   status.textContent = '행사 설정을 이 기기에 보관하고 있어요.';
   try {
@@ -1910,29 +2055,40 @@ on('event-form','submit',safe(async event => {
 on('event-open','click',() => {
   if (!eventSession || busy || running) return;
   updateEventView();
+  renderEventBoard();
   $('event-dialog').showModal();
 });
+on('event-hold','click',() => moveEventGroup('hold'));
+on('event-board','click',event => {
+  const target = event.target.closest('button[data-group]');
+  if (target) moveEventGroup('select',Number(target.dataset.group));
+});
+on('event-dialog','cancel',event => { if (eventWorking) event.preventDefault(); });
 
 on('event-end','click',safe(async () => {
   if (!eventSession || eventWorking) return;
   const state = eventSession;
-  const complete = !eventGroupNumber(state);
-  if (!await confirmAction('행사 모드를 종료할까요?', complete
-    ? '행사 진행 현황을 닫고 일반 화면으로 돌아가요.'
-    : '현재 컷은 유지되고 이 행사의 모둠 번호와 진행 집계는 종료돼요.', {yesLabel:'행사 모드 종료'})) return;
-  const button = $('event-end');
-  eventWorking = button.disabled = true;
+  const complete = state.completed === state.total;
+  eventWorking = true;
+  syncEventBoardControls();
   try {
+    if (!await confirmAction('행사 모드를 종료할까요?', complete
+      ? '행사 진행 현황을 닫고 일반 화면으로 돌아가요.'
+      : '현재 컷은 유지되고 이 행사의 모둠 번호와 진행 집계는 종료돼요.', {yesLabel:'행사 모드 종료'})) return;
     await finishEvent(state);
     eventSession = eventPreset = null;
     clearExportImage();
     requestedExport = null;
+    exportFailure = null;
     $('event-dialog').close();
     syncClassroomMode();
     await render();
     message('행사 모드를 종료했어요.');
   } catch (error) { $('event-dialog-current').textContent = error.message; }
-  finally { eventWorking = button.disabled = false; }
+  finally {
+    eventWorking = false;
+    syncEventBoardControls();
+  }
 }));
 
 function renderClassroomProgress(filled, count) {
@@ -1942,7 +2098,7 @@ function renderClassroomProgress(filled, count) {
 
 function syncClassroomMode() {
   document.body.toggleAttribute('data-classroom-mode', classroomMode || !!eventSession);
-  document.body.toggleAttribute('data-event-complete', !!eventSession && !eventGroupNumber(eventSession));
+  document.body.toggleAttribute('data-event-idle', !!eventSession && !eventGroupNumber(eventSession));
   $('classroom-mode-label').hidden = !classroomMode || !!eventSession;
   $('classroom-mode-exit').hidden = !classroomMode || !!eventSession;
   updateEventView();
@@ -2024,6 +2180,7 @@ async function refreshLessons(preferred = $('lesson-list').value) {
   ), ...lessonNames.map(name => new Option(name, name)));
   if (lessonNames.includes(preferred)) list.value = preferred;
   updateLessonControls();
+  renderEventTemplates();
 }
 
 function withLessonStorage(task) {
@@ -2060,9 +2217,10 @@ function applyLessonSnapshot(saved, newLogo, {replaceBackgrounds = false} = {}) 
   }
   backgrounds.splice(0, backgrounds.length, ...backgrounds.filter(b => b.builtIn), ...keep, ...loaded);
   const preset = saved.preset;
-  for (const key of ['count', 'layout', 'frame', 'frameStyle', 'caption', 'subtitle', 'school', 'date']) {
+  for (const key of ['count', 'layout', 'frame', 'frameStyle', 'caption', 'subtitle', 'school']) {
     project[key] = preset[key];
   }
+  project.date = preset.date ?? project.date;
   project.cuts.forEach((current, i) => { current.background = preset.backgrounds[i]; });
   for (const key of ['timer', 'sound', 'mission', 'lockBackground', 'customMissions']) settings[key] = preset[key];
   logo = newLogo;
@@ -2072,6 +2230,7 @@ function applyLessonSnapshot(saved, newLogo, {replaceBackgrounds = false} = {}) 
   sourceMode = 'append';
   history.clear();
   cleanAssets();
+  if (preset.printPaper) restoreEventOptions(preset);
   captureGroupStart();
   teacherSync();
   render();
@@ -2119,3 +2278,84 @@ on('lesson-delete', 'click', withLessonStorage(async () => {
   $('lesson-status').textContent = `‘${name}’ 설정을 삭제했어요.`;
 }));
 updateLessonControls();
+
+function syncEventTemplateControls() {
+  $('event-template-apply').disabled = templateWorking || !$('event-template-list').value;
+  for (const id of ['event-template-list','event-template-save','event-template-submit']) $(id).disabled = templateWorking;
+  $('event-start').disabled = templateWorking || eventWorking;
+}
+
+function renderEventTemplates(preferred = $('event-template-list').value) {
+  const list = $('event-template-list');
+  const builtIn = document.createElement('optgroup');
+  builtIn.label = '기본 템플릿';
+  builtIn.append(...EVENT_TEMPLATES.map(template => new Option(template.name,'built:' + template.id)));
+  const saved = document.createElement('optgroup');
+  saved.label = '이 기기에 저장한 설정';
+  saved.append(...lessonNames.map(name => new Option(name,'saved:' + name)));
+  list.replaceChildren(new Option('템플릿 선택',''),builtIn);
+  if (lessonNames.length) list.append(saved);
+  if ([...list.options].some(option => option.value === preferred)) list.value = preferred;
+  syncEventTemplateControls();
+}
+
+function runTemplate(task,statusId) {
+  return async event => {
+    event.preventDefault();
+    if (templateWorking || eventWorking || busy || running) return;
+    templateWorking = true;
+    syncEventTemplateControls();
+    try { await task(); }
+    catch (error) { $(statusId).textContent = error.message || '행사 설정을 읽지 못했어요.'; }
+    finally {
+      templateWorking = false;
+      syncEventTemplateControls();
+    }
+  };
+}
+
+on('event-template-list','change',syncEventTemplateControls);
+on('event-template-apply','click',runTemplate(async () => {
+  const choice = $('event-template-list').value;
+  if (!choice) return;
+  const name = $('event-template-list').selectedOptions[0].textContent;
+  const stored = choice.startsWith('saved:');
+  const saved = stored ? await getLesson(choice.slice(6)) : {
+    preset:builtInEventPreset(choice.slice(6),currentEventPreset()),logo:logoBlob,backgrounds:[]
+  };
+  if (!saved?.preset) throw Error('선택한 템플릿을 다시 확인해 주세요.');
+  if (isDirty() && !await confirmAction('행사 템플릿을 적용할까요?',
+    '현재 사진은 유지되고 배경과 꾸미기 설정이 바뀌어요.')) return;
+  const newLogo = stored && saved.logo ? await readPhoto(saved.logo) : stored ? null : logo;
+  applyLessonSnapshot(saved,newLogo);
+  const metadata = saved.preset.eventTemplate;
+  if (metadata?.title) $('event-title-input').value = metadata.title;
+  if (metadata?.total) $('event-total-input').value = metadata.total;
+  markLesson(stored ? name : null);
+  $('event-template-status').textContent = '‘' + name + '’ 템플릿을 적용했어요.';
+},'event-template-status'));
+
+on('event-template-save','click',() => {
+  $('event-template-name').value = $('event-title-input').value.trim().slice(0,30);
+  $('event-template-save-status').textContent = '';
+  $('event-template-dialog').showModal();
+});
+on('event-template-form','submit',runTemplate(async () => {
+  const name = $('event-template-name').value.normalize('NFC').trim().replace(/\s+/g,' ');
+  if (!name) throw Error('템플릿 이름을 입력해 주세요.');
+  const replace = lessonNames.includes(name);
+  if (replace && !await confirmAction('같은 이름으로 저장할까요?', '‘' + name + '’ 설정을 현재 값으로 바꿉니다.')) return;
+  const {date,...preset} = currentEventPreset();
+  const title = $('event-title-input').value.trim() || name;
+  const total = $('event-total-input').valueAsNumber;
+  preset.eventTemplate = {title,total:Number.isInteger(total) && total >= 1 && total <= 99 ? total : 5};
+  const selectedIds = new Set(preset.backgrounds);
+  const chosen = backgrounds.filter(background => !background.builtIn && selectedIds.has(background.id))
+    .map(({id,name,blob}) => ({id,name,blob}));
+  await saveLesson(name,preset,chosen,logoBlob,{replace});
+  await refreshLessons(name);
+  renderEventTemplates('saved:' + name);
+  $('event-template-dialog').close();
+  $('event-template-status').textContent = '‘' + name + '’ 템플릿을 이 기기에 저장했어요.';
+},'event-template-save-status'));
+renderEventTemplates();

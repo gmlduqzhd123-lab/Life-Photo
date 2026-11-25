@@ -1,3 +1,5 @@
+import {changeEventGroup,normalizeEvent} from './event-mode.mjs?v=event-workflow';
+
 const DB = 'imagine-four-settings';
 const STORE = 'settings';
 const STARTUP = 'preset';
@@ -73,9 +75,13 @@ export function saveClassroom(preset, backgrounds, logo = null) {
   return accessStore('readwrite', store => store.put(data, ACTIVE_CLASSROOM));
 }
 
-export const readEvent = () => readKey(ACTIVE_EVENT);
+export async function readEvent() {
+  const saved = await readKey(ACTIVE_EVENT);
+  return saved ? {...saved,event:normalizeEvent(saved.event)} : null;
+}
 
 export function startEvent(event, preset, backgrounds, logo) {
+  event = normalizeEvent(event);
   const data = {...snapshot(preset,backgrounds,logo),event};
   return accessStore('readwrite', (store,result,fail) => {
     const request = store.add(data,ACTIVE_EVENT);
@@ -93,18 +99,19 @@ function updateEvent(expected, apply) {
     const request = store.get(ACTIVE_EVENT);
     request.onsuccess = () => {
       const saved = request.result;
-      if (saved?.event?.id !== expected.id || saved.event.completed !== expected.completed) {
+      if (saved?.event?.id !== expected.id || normalizeEvent(saved.event).revision !== expected.revision) {
         fail(Error('다른 창에서 행사 진행이 바뀌었어요. 현재 사진을 저장한 뒤 화면을 새로고침해 주세요.'));
         return;
       }
-      apply(store,saved,result);
+      try { apply(store,saved,result); }
+      catch (error) { fail(error); }
     };
   });
 }
 
-export function advanceEvent(expected) {
+export function advanceEvent(expected, action = 'complete', group) {
   return updateEvent(expected,(store,saved,result) => {
-    const event = {...saved.event,completed:Math.min(saved.event.total,saved.event.completed+1)};
+    const event = changeEventGroup(saved.event, action, group);
     store.put({...saved,event},ACTIVE_EVENT);
     result(event);
   });

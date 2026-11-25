@@ -27,6 +27,80 @@ export async function readPhoto(file) {
     return canvas;
   } finally { bitmap.close(); }
 }
-export function makeCutout(source,mask,mw,mh,softness=.5){const w=source.width,h=source.height;const c=document.createElement('canvas');c.width=w;c.height=h;const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(source,0,0);const pixels=ctx.getImageData(0,0,w,h);let minX=w,minY=h,maxX=0,maxY=0,count=0;const low=.25-softness*.13,high=.72+softness*.13;
-for(let y=0;y<h;y++){const fy=(y+.5)*mh/h-.5,y0=Math.max(0,Math.floor(fy)),y1=Math.min(mh-1,y0+1),ty=Math.max(0,fy-y0);for(let x=0;x<w;x++){const fx=(x+.5)*mw/w-.5,x0=Math.max(0,Math.floor(fx)),x1=Math.min(mw-1,x0+1),tx=Math.max(0,fx-x0);const p=(mask[y0*mw+x0]*(1-tx)+mask[y0*mw+x1]*tx)*(1-ty)+(mask[y1*mw+x0]*(1-tx)+mask[y1*mw+x1]*tx)*ty;let a=Math.max(0,Math.min(1,(p-low)/(high-low)));a=a*a*(3-2*a);pixels.data[(y*w+x)*4+3]=Math.round(a*255);if(a>.15){count++;minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);}}}
-if(count<w*h*.006)throw Error('인물이 잘 보이지 않아요. 밝은 곳에서 가까이 찍거나 원본 사진을 사용해 주세요.');ctx.putImageData(pixels,0,0);const pad=10;minX=Math.max(0,minX-pad);minY=Math.max(0,minY-pad);maxX=Math.min(w-1,maxX+pad);maxY=Math.min(h-1,maxY+pad);const crop=document.createElement('canvas');crop.width=maxX-minX+1;crop.height=maxY-minY+1;crop.getContext('2d').drawImage(c,minX,minY,crop.width,crop.height,0,0,crop.width,crop.height);c.width=c.height=0;return crop;}
+export function canvasBlob(canvas,type,quality) {
+  return new Promise((resolve,reject) => canvas.toBlob(blob => {
+    if (blob) resolve(blob);
+    else reject(Error('저장할 이미지를 만들지 못했어요.'));
+  },type,quality));
+}
+
+export function applySegmentationAlpha(pixels,w,h,mask,mw,mh,softness = .5) {
+  const low = .25 - softness * .13;
+  const high = .72 + softness * .16;
+  // Every image row samples the same horizontal mask coordinates.
+  const left = new Uint32Array(w);
+  const right = new Uint32Array(w);
+  const rightWeight = new Float64Array(w);
+  const leftWeight = new Float64Array(w);
+  for (let x = 0; x < w; x += 1) {
+    const fx = (x + .5) * mw / w - .5;
+    left[x] = Math.max(0,Math.floor(fx));
+    right[x] = Math.min(mw - 1,left[x] + 1);
+    rightWeight[x] = Math.max(0,fx - left[x]);
+    leftWeight[x] = 1 - rightWeight[x];
+  }
+
+  let minX = w, minY = h, maxX = 0, maxY = 0, count = 0;
+  for (let y = 0; y < h; y += 1) {
+    const fy = (y + .5) * mh / h - .5;
+    const upper = Math.max(0,Math.floor(fy));
+    const lower = Math.min(mh - 1,upper + 1);
+    const lowerWeight = Math.max(0,fy - upper);
+    const upperWeight = 1 - lowerWeight;
+    const upperRow = upper * mw;
+    const lowerRow = lower * mw;
+    let alpha = y * w * 4 + 3;
+    for (let x = 0; x < w; x += 1) {
+      const confidence = (mask[upperRow + left[x]] * leftWeight[x] + mask[upperRow + right[x]] * rightWeight[x]) * upperWeight
+        + (mask[lowerRow + left[x]] * leftWeight[x] + mask[lowerRow + right[x]] * rightWeight[x]) * lowerWeight;
+      let opacity = Math.max(0,Math.min(1,(confidence - low) / (high - low)));
+      opacity = opacity * opacity * (3 - 2 * opacity);
+      pixels[alpha] = Math.round(opacity * 255);
+      alpha += 4;
+      if (opacity > .15) {
+        count += 1;
+        minX = Math.min(minX,x);
+        maxX = Math.max(maxX,x);
+        minY = Math.min(minY,y);
+        maxY = Math.max(maxY,y);
+      }
+    }
+  }
+  return {minX,minY,maxX,maxY,count};
+}
+
+export function makeCutout(source,mask,mw,mh,softness = .5) {
+  const {width:w,height:h} = source;
+  const full = document.createElement('canvas');
+  full.width = w;
+  full.height = h;
+  try {
+    const context = full.getContext('2d',{willReadFrequently:true});
+    context.drawImage(source,0,0);
+    const pixels = context.getImageData(0,0,w,h);
+    const bounds = applySegmentationAlpha(pixels.data,w,h,mask,mw,mh,softness);
+    if (bounds.count < w * h * .006) {
+      throw Error('인물이 잘 보이지 않아요. 밝은 곳에서 가까이 찍거나 원본 사진을 사용해 주세요.');
+    }
+    context.putImageData(pixels,0,0);
+    const x = Math.max(0,bounds.minX - 10);
+    const y = Math.max(0,bounds.minY - 10);
+    const crop = document.createElement('canvas');
+    crop.width = Math.min(w - 1,bounds.maxX + 10) - x + 1;
+    crop.height = Math.min(h - 1,bounds.maxY + 10) - y + 1;
+    crop.getContext('2d').drawImage(full,x,y,crop.width,crop.height,0,0,crop.width,crop.height);
+    return crop;
+  } finally {
+    full.width = full.height = 0;
+  }
+}

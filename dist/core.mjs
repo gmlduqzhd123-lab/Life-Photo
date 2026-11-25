@@ -62,11 +62,9 @@ const PAPER_SIZES = new Map([
   ['letter', {cssSize: 'Letter', width: 215.9, height: 279.4}]
 ]);
 
-export function getPrintLayout(size, count) {
+export function getPrintLayout(size, count, {margin = 8,gap = 3} = {}) {
   const paper = PAPER_SIZES.get(size) || PAPER_SIZES.get('A4');
   const copies = [1, 2, 4].includes(Number(count)) ? Number(count) : 1;
-  const margin = 8;
-  const gap = 3;
   const columns = copies > 1 ? 2 : 1;
   const rows = copies === 4 ? 2 : 1;
   const w = (paper.width - 2 * margin - (columns - 1) * gap) / columns;
