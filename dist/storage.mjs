@@ -1,4 +1,4 @@
-import {archiveEvent,changeEventGroup,normalizeEvent} from './event-mode.mjs?v=event-review';
+import {archiveEvent,changeEventGroup,confirmEventPrint,normalizeEvent} from './event-mode.mjs?v=station-flow';
 
 const DB = 'imagine-four-settings';
 const STORE = 'settings';
@@ -125,7 +125,16 @@ export function setEventReprint(expected,group,value) {
     const reprint = new Set(current.reprint || []);
     if (value) reprint.add(group);
     else reprint.delete(group);
-    const event = {...current,reprint:[...reprint],revision:current.revision + 1};
+    const printed = value ? (current.printed || []).filter(number => number !== group) : current.printed;
+    const event = {...current,reprint:[...reprint],printed,revision:current.revision + 1};
+    store.put({...saved,event},ACTIVE_EVENT);
+    result(event);
+  });
+}
+
+export function markEventPrinted(expected,numbers) {
+  return updateEvent(expected,(store,saved,result) => {
+    const event = confirmEventPrint(normalizeEvent(saved.event),numbers);
     store.put({...saved,event},ACTIVE_EVENT);
     result(event);
   });
@@ -140,7 +149,8 @@ export function finishEvent(expected,report = null) {
     const closed = archiveEvent(saved.event,report,new Date().toISOString());
     const request = store.get(RECENT_EVENTS);
     request.onsuccess = () => {
-      const recent = (request.result || []).filter(entry => entry.id !== closed.id);
+      const sameStation = (first,second) => first?.name === second?.name && first?.first === second?.first && first?.last === second?.last;
+      const recent = (request.result || []).filter(entry => entry.id !== closed.id || !sameStation(entry.station,closed.station));
       store.put([closed,...recent].slice(0,20),RECENT_EVENTS);
       store.delete(ACTIVE_EVENT);
       result(closed);

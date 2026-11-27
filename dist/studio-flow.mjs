@@ -1,4 +1,4 @@
-import {eventFilePrefix,eventFilenamePart,eventOutputLabel} from './event-mode.mjs?v=event-review';
+import {eventFilePrefix,eventFilenamePart,eventOutputLabel,eventPrintLabel} from './event-mode.mjs?v=station-flow';
 
 const anchors = {
   'track-finish':{center:600,feet:801,height:560},
@@ -36,7 +36,7 @@ export function inspectEventFiles(event,names,{acceptLegacy = false} = {}) {
   const legacyPrefix = eventFilenamePart(event.title) + '_';
   const rows = event.groups.map((group,index) => ({
     number:index + 1,group,output:event.outputs?.[index + 1],reprint:!!event.reprint?.includes(index + 1),
-    files:0,duplicates:0,seen:new Set(),png:[]
+    files:0,duplicates:0,seen:new Set(),png:[],printStatus:eventPrintLabel(event,index + 1)
   }));
   let skipped = 0;
   let pendingLegacy = 0;
@@ -46,7 +46,7 @@ export function inspectEventFiles(event,names,{acceptLegacy = false} = {}) {
     const legacy = !current && event.round && matchEventOutput(name,legacyPrefix);
     const match = current || legacy;
     const row = match && rows[match.number - 1];
-    if (!row) {
+    if (!row || row.group === 'unassigned') {
       skipped++;
       continue;
     }
@@ -64,7 +64,7 @@ export function inspectEventFiles(event,names,{acceptLegacy = false} = {}) {
   return {skipped,pendingLegacy,rows:rows.map(({seen,...row}) => ({...row,missing:row.group === 'done' && !row.files}))};
 }
 
-export const eventGroupLabels = {waiting:'대기',active:'진행 중',held:'보류',done:'완료'};
+export const eventGroupLabels = {waiting:'대기',active:'진행 중',held:'보류',done:'완료',unassigned:'다른 촬영대',conflict:'번호 중복'};
 
 export function eventReportCsv(event,report) {
   const csvLine = values => values.map(value => {
@@ -74,11 +74,11 @@ export function eventReportCsv(event,report) {
   }).join(',');
   const rows = report?.rows || inspectEventFiles(event,[]).rows;
   return '\uFEFF' + [
-    csvLine(['행사','모둠','진행 상태','저장 파일 확인','중복 파일 수','재출력','저장한 컷','행사일','회차']),
+    csvLine(['행사','모둠','진행 상태','저장 파일 확인','중복 파일 수','재출력','저장한 컷','행사일','회차','인쇄 상태']),
     ...rows.map(row => csvLine([event.title,row.number,eventGroupLabels[row.group],
       !report ? '미점검' : row.files ? row.files + '개' : row.missing ? '누락' : '없음',
       report ? row.duplicates : '',row.reprint ? '필요' : '',eventOutputLabel(row.output),
-      event.round?.date || '',event.round?.code || '']))
+      event.round?.date || '',event.round?.code || '',row.printStatus ?? eventPrintLabel(event,row.number)]))
   ].join('\r\n') + '\r\n';
 }
 

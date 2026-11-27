@@ -7,11 +7,35 @@ export function normalizeEvent(event) {
 }
 
 export function eventGroupNumber(event) {
-  return event ? normalizeEvent(event).current : null;
+  return event ? event.retry || normalizeEvent(event).current : null;
+}
+
+export function eventGroupTotal(event) {
+  return event.station ? event.station.last - event.station.first + 1 : event.total;
+}
+
+export function canRetryGroup(event,group) {
+  const output = event.outputs?.[group];
+  return !event.retry && event.groups[group - 1] === 'done' && output?.captured < output?.target;
 }
 
 export function changeEventGroup(event, action, group, output) {
-  const {groups:previous, current, revision} = normalizeEvent(event);
+  event = normalizeEvent(event);
+  const {groups:previous,current,revision,retry} = event;
+  if (retry) {
+    if (action === 'cancel-retry') return {...event,retry:null,revision:revision + 1};
+    if (action !== 'complete') throw Error('재촬영을 마치거나 취소해 주세요.');
+    if (!output || !validOutput(output) || output.captured !== output.target
+      || output.target !== event.outputs[retry].target) throw Error('모든 컷을 채운 뒤 재촬영 결과를 확정해 주세요.');
+    const outputs = {...event.outputs,[retry]:{captured:output.captured,target:output.target}};
+    return {...event,retry:null,outputs,revision:revision + 1,
+      printed:(event.printed || []).filter(number => number !== retry),
+      reprint:(event.reprint || []).filter(number => number !== retry)};
+  }
+  if (action === 'retry') {
+    if (!canRetryGroup(event,group)) throw Error('일부 저장한 모둠을 골라 주세요.');
+    return {...event,retry:group,revision:revision + 1};
+  }
   const groups = previous.slice();
   let outputs = event.outputs;
   if (action === 'select') {
@@ -32,6 +56,20 @@ export function changeEventGroup(event, action, group, output) {
   if (group) groups[group - 1] = 'active';
   return {...event, groups, current:group, completed:groups.filter(state => state === 'done').length, revision:revision + 1,
     ...(outputs ? {outputs} : {})};
+}
+
+export function eventPrintLabel(event,number) {
+  if (event.reprint?.includes(number)) return '재출력 필요';
+  if (event.printed?.includes(number)) return '인쇄 확인';
+  return event.groups[number - 1] === 'done' ? '출력 대기' : '';
+}
+
+export function confirmEventPrint(event,numbers) {
+  const groups = new Set(numbers);
+  if (!groups.size || [...groups].some(number => !Number.isInteger(number)
+    || event.groups[number - 1] !== 'done' || event.retry === number)) throw Error('저장을 마친 모둠을 선택해 주세요.');
+  return {...event,printed:[...new Set([...(event.printed || []),...groups])],
+    reprint:(event.reprint || []).filter(number => !groups.has(number)),revision:event.revision + 1};
 }
 
 function validOutput({captured,target}) {
@@ -79,14 +117,16 @@ export function archiveEvent(current,report,closedAt) {
     }
   }
   const round = event.round ? {date:event.round.date,code:event.round.code} : undefined;
+  const station = event.station ? {name:event.station.name,first:event.station.first,last:event.station.last} : undefined;
   const reprint = (event.reprint || []).filter(number => Number.isInteger(number) && number >= 1 && number <= total);
+  const printed = (event.printed || []).filter(number => Number.isInteger(number) && number >= 1 && number <= total);
   const inspection = report ? {skipped:report.skipped,pendingLegacy:report.pendingLegacy || 0,
     rows:groups.map((group,index) => {
       const number = index + 1;
       const checked = report.rows.find(row => row.number === number);
       const files = checked?.files || 0;
       return {number,group,files,duplicates:checked?.duplicates || 0,missing:group === 'done' && !files,
-        reprint:reprint.includes(number),output:outputs[number]};
+        reprint:reprint.includes(number),output:outputs[number],printStatus:eventPrintLabel(event,number)};
     })} : null;
-  return {id,title,total,completed,groups:[...groups],round,reprint,outputs,closedAt,inspection};
+  return {id,title,total,completed,groups:[...groups],round,station,reprint,printed,outputs,closedAt,inspection};
 }

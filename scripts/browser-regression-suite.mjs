@@ -1,5 +1,5 @@
-import {readEvent,startEvent,advanceEvent,finishEvent,readRecentEvents} from '/storage.mjs?v=event-review';
-import {eventFilename} from '/event-mode.mjs?v=event-review';
+import {readEvent,startEvent,advanceEvent,finishEvent,readRecentEvents} from '/storage.mjs?v=station-flow';
+import {eventFilename} from '/event-mode.mjs?v=station-flow';
 import {newProject,addItem} from '/core.mjs?v=event-workflow';
 import {initSegmenter,segmentPhoto,resetSegmenter} from '/segment-client.mjs';
 import {canvasBlob,makeCutout} from '/image-tools.mjs?v=event-workflow';
