@@ -117,6 +117,19 @@ export function advanceEvent(expected, action = 'complete', group) {
   });
 }
 
+export function setEventReprint(expected,group,value) {
+  return updateEvent(expected,(store,saved,result) => {
+    const current = normalizeEvent(saved.event);
+    if (!Number.isInteger(group) || group < 1 || group > current.total) throw Error('모둠 번호를 확인해 주세요.');
+    const reprint = new Set(current.reprint || []);
+    if (value) reprint.add(group);
+    else reprint.delete(group);
+    const event = {...current,reprint:[...reprint],revision:current.revision + 1};
+    store.put({...saved,event},ACTIVE_EVENT);
+    result(event);
+  });
+}
+
 export function finishEvent(expected) {
   return updateEvent(expected,(store,_saved,result) => {
     store.delete(ACTIVE_EVENT);

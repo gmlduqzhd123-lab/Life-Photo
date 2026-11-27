@@ -1,4 +1,4 @@
-import {readEvent,startEvent,advanceEvent,finishEvent} from '/storage.mjs?v=event-workflow';
+import {readEvent,startEvent,advanceEvent,finishEvent} from '/storage.mjs?v=studio-flow';
 import {eventFilename} from '/event-mode.mjs?v=event-workflow';
 import {newProject,addItem} from '/core.mjs?v=event-workflow';
 import {initSegmenter,segmentPhoto,resetSegmenter} from '/segment-client.mjs';
