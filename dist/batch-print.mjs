@@ -157,22 +157,21 @@ export function setupBatchPrint({downloadBlob,filename}) {
   }
 
   for (const opener of document.querySelectorAll('[data-batch-open]')) {
-    opener.addEventListener('click',() => {
-      if (dialog.open) return;
-      filenameForDialog = filename();
-      dialog.showModal();
-    });
+    opener.addEventListener('click',() => openBatchPrint());
   }
   $('choose').onclick = () => { if (!working) $('input').click(); };
-  $('input').onchange = async event => {
+  $('input').onchange = event => {
     const selected = [...event.target.files];
     event.target.value = '';
+    return addFiles(selected.sort((first,second) => first.name.localeCompare(second.name,'ko',{numeric:true})));
+  };
+
+  async function addFiles(selected) {
     if (!selected.length || working) return;
     setWorking(true);
     const token = epoch;
     const issues = [];
-    const ordered = selected.sort((first,second) => first.name.localeCompare(second.name,'ko',{numeric:true}));
-    for (const blob of ordered) {
+    for (const blob of selected) {
       if (token !== epoch) return;
       if (files.length >= fileLimit) {
         issues.push('한 번에 ' + fileLimit + '개까지 추가할 수 있어요.');
@@ -195,7 +194,14 @@ export function setupBatchPrint({downloadBlob,filename}) {
     $('status').textContent = issues.length ? issues.slice(0,3).join(' / ') : files.length + '개 파일을 선택했어요.';
     setWorking(false);
     renderFiles();
-  };
+  }
+
+  function openBatchPrint(initial = []) {
+    if (dialog.open) return;
+    filenameForDialog = filename();
+    dialog.showModal();
+    return addFiles(initial);
+  }
 
   $('per-page').onchange = $('margin').onchange = $('marks').onchange = refreshPreview;
   $('prev').onclick = () => { page -= 1; refreshPreview(); };
@@ -236,4 +242,5 @@ export function setupBatchPrint({downloadBlob,filename}) {
   dialog.addEventListener('cancel',event => { if (working) event.preventDefault(); });
   dialog.addEventListener('close',clearFiles);
   window.addEventListener('pagehide',() => { if (dialog.open) dialog.close(); clearFiles(); });
+  return openBatchPrint;
 }

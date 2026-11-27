@@ -1,5 +1,5 @@
-import {readEvent,startEvent,advanceEvent,finishEvent} from '/storage.mjs?v=studio-flow';
-import {eventFilename} from '/event-mode.mjs?v=event-workflow';
+import {readEvent,startEvent,advanceEvent,finishEvent,readRecentEvents} from '/storage.mjs?v=event-review';
+import {eventFilename} from '/event-mode.mjs?v=event-review';
 import {newProject,addItem} from '/core.mjs?v=event-workflow';
 import {initSegmenter,segmentPhoto,resetSegmenter} from '/segment-client.mjs';
 import {canvasBlob,makeCutout} from '/image-tools.mjs?v=event-workflow';
@@ -39,12 +39,16 @@ async function checkProgress() {
     current = await advanceEvent(current,'select',3);
     names.add(eventFilename(current,'완성','png'));
     check(eventFilename(current,'인쇄_A4','pdf') === '회귀_검증_03모둠_인쇄_A4.pdf','복귀 모둠 파일명 불일치');
-    current = await advanceEvent(current);
+    current = await advanceEvent(current,'complete',undefined,{captured:1,target:4});
     check(current.completed === 10 && current.current === null && names.size === 10,'완료 집계 불일치');
     report('PASS · IndexedDB 재조회, 10모둠, 순서 변경 및 다른 창 충돌');
   } finally {
     await finishEvent((await readEvent()).event);
   }
+  const [recent] = await readRecentEvents();
+  check(!(await readEvent()) && recent.outputs[3].captured === 1 && recent.outputs[3].target === 4,
+    '종료한 행사의 일부 저장 복원 실패');
+  report('PASS · 종료 후 일부 저장 정보를 최근 행사에서 다시 읽음');
 }
 
 function canvas(width,height) {

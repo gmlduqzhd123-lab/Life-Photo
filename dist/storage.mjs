@@ -1,10 +1,11 @@
-import {changeEventGroup,normalizeEvent} from './event-mode.mjs?v=event-workflow';
+import {archiveEvent,changeEventGroup,normalizeEvent} from './event-mode.mjs?v=event-review';
 
 const DB = 'imagine-four-settings';
 const STORE = 'settings';
 const STARTUP = 'preset';
 const ACTIVE_CLASSROOM = 'active-classroom';
 const ACTIVE_EVENT = 'active-event';
+const RECENT_EVENTS = 'recent-events';
 const LESSON_PREFIX = 'lesson:';
 
 function openDatabase() {
@@ -109,9 +110,9 @@ function updateEvent(expected, apply) {
   });
 }
 
-export function advanceEvent(expected, action = 'complete', group) {
+export function advanceEvent(expected, action = 'complete', group, output) {
   return updateEvent(expected,(store,saved,result) => {
-    const event = changeEventGroup(saved.event, action, group);
+    const event = changeEventGroup(saved.event, action, group, output);
     store.put({...saved,event},ACTIVE_EVENT);
     result(event);
   });
@@ -130,10 +131,20 @@ export function setEventReprint(expected,group,value) {
   });
 }
 
-export function finishEvent(expected) {
-  return updateEvent(expected,(store,_saved,result) => {
-    store.delete(ACTIVE_EVENT);
-    result(true);
+export async function readRecentEvents() {
+  return (await readKey(RECENT_EVENTS)) || [];
+}
+
+export function finishEvent(expected,report = null) {
+  return updateEvent(expected,(store,saved,result) => {
+    const closed = archiveEvent(saved.event,report,new Date().toISOString());
+    const request = store.get(RECENT_EVENTS);
+    request.onsuccess = () => {
+      const recent = (request.result || []).filter(entry => entry.id !== closed.id);
+      store.put([closed,...recent].slice(0,20),RECENT_EVENTS);
+      store.delete(ACTIVE_EVENT);
+      result(closed);
+    };
   });
 }
 
