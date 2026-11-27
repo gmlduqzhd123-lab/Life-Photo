@@ -220,7 +220,9 @@ body[data-classroom-mode] :is(#teacher-open, #demo-fill, #check-ready, #model-st
 }
 .scene-tag:first-child { margin-left: min(18%, 76px); }
 .scene-tip { position: absolute; z-index: 3; left: 50%; bottom: 9px; translate: -50% 0; text-align: center; width: max-content; max-width: calc(100% - 12px); pointer-events: none; }
-.countdown { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; font-size: clamp(4rem, 16vw, 8rem); font-weight: 900; color: #fff; background: #132c3c55; }
+.countdown { position: absolute; inset: 0; z-index: 5; display: grid; place-content: center; justify-items: center; gap: .35rem; padding: .5rem; text-align: center; color: #fff; background: #132c3cba; }
+.countdown strong { font-size: clamp(3.5rem, 14vw, 7rem); line-height: 1; }
+.countdown span { font-size: clamp(1rem, 4vw, 1.35rem); font-weight: 800; }
 .busy { position: absolute; inset: 0; z-index: 6; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: #173e4bea; color: #fff; text-align: center; }
 .busy span:last-child { font-size: .83rem; }
 .spinner { width: 32px; height: 32px; border: 3px solid #fff5; border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; }
@@ -712,6 +714,13 @@ body[data-classroom-mode] .classroom-mode-label { white-space: nowrap; }
 body[data-event-idle] :is(.steps,[aria-label="현재 단계 빠른 실행"],#background-sidebar) { display: none; }
 body[data-event-idle] .workspace { display: block; }
 body[data-event-idle] .editor-panel > :not(#event-banner) { display: none; }
+body[data-event-locked] .group-handoff [data-batch-open] { display: none; }
+body[data-event-locked] #event-current { font-size: 1.15rem; font-weight: 800; }
+body[data-event-locked] :is(#capture, #auto-capture, #capture-retake, #download, #download-partial, #new-group) { min-height: 44px; }
+body[data-event-reduced-motion] :is(.editor-panel *, .mobile-action-bar *, dialog *) { animation: none !important; transition: none !important; }
+#event-student-prompt { margin: .4rem 0 0; color: var(--text, #30271e); font-size: 1rem; font-weight: 700; }
+.event-guidance-options { gap: .4rem 1rem; }
+#station-assign-rows :is(strong, button), #print-history-rows span { overflow-wrap: anywhere; min-width: 0; }
 .event-board {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 225px), 1fr));

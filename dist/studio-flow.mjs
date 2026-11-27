@@ -1,4 +1,4 @@
-import {eventFilePrefix,eventFilenamePart,eventOutputLabel,eventPrintLabel} from './event-mode.mjs?v=station-flow';
+import {eventFilePrefix,eventFilenamePart,eventOutputLabel,eventPrintLabel} from './event-mode.mjs?v=event-operations';
 
 const anchors = {
   'track-finish':{center:600,feet:801,height:560},

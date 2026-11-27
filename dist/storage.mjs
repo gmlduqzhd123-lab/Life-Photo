@@ -1,4 +1,5 @@
-import {archiveEvent,changeEventGroup,confirmEventPrint,normalizeEvent} from './event-mode.mjs?v=station-flow';
+import {addPrintBatch,archiveEvent,changeEventGroup,confirmEventPrint,normalizeEvent} from './event-mode.mjs?v=event-operations';
+import {stationPlan,updateStationResults} from './event-stations.mjs?v=event-operations';
 
 const DB = 'imagine-four-settings';
 const STORE = 'settings';
@@ -7,6 +8,7 @@ const ACTIVE_CLASSROOM = 'active-classroom';
 const ACTIVE_EVENT = 'active-event';
 const RECENT_EVENTS = 'recent-events';
 const LESSON_PREFIX = 'lesson:';
+const STATION_RESULTS_PREFIX = 'station-results:';
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -137,6 +139,72 @@ export function markEventPrinted(expected,numbers) {
     const event = confirmEventPrint(normalizeEvent(saved.event),numbers);
     store.put({...saved,event},ACTIVE_EVENT);
     result(event);
+  });
+}
+
+export function saveEventPrintBatch(expected,numbers,pages) {
+  return updateEvent(expected,(store,saved,result) => {
+    const event = addPrintBatch(normalizeEvent(saved.event),numbers,pages,new Date().toISOString());
+    store.put({...saved,event},ACTIVE_EVENT);
+    result(event);
+  });
+}
+
+export function setStationPlan(expected,entries) {
+  return updateEvent(expected,(store,saved,result) => {
+    const {event:current} = saved;
+    const {plan} = stationPlan(entries,current.total);
+    const event = {...current,stationPlan:plan,revision:current.revision + 1};
+    store.put({...saved,event},ACTIVE_EVENT);
+    result(event);
+  });
+}
+
+export async function listStationResultRounds() {
+  return accessStore('readonly',(store,result) => {
+    const request = store.getAll(IDBKeyRange.bound(STATION_RESULTS_PREFIX,'station-results;',false,true));
+    request.onsuccess = () => result(request.result.sort((a,b) => b.event.round.date.localeCompare(a.event.round.date)));
+  });
+}
+
+export const readStationResults = id => readKey(STATION_RESULTS_PREFIX + id);
+
+export function saveStationResults(files) {
+  const incoming = updateStationResults([],files);
+  const key = STATION_RESULTS_PREFIX + incoming.event.id;
+  return accessStore('readwrite',(store,result,fail) => {
+    const request = store.get(key);
+    request.onsuccess = () => {
+      try {
+        const saved = request.result?.files || [];
+        const updated = updateStationResults(saved,files);
+        store.put({event:updated.event,files:updated.files},key);
+        result({...updated,previous:saved});
+      } catch (error) { fail(error); }
+    };
+  });
+}
+
+export function restoreEventBackup(event,preset,backgrounds,logo,files) {
+  const data = {...snapshot(preset,backgrounds,logo),event};
+  const key = STATION_RESULTS_PREFIX + event.id;
+  return accessStore('readwrite',(store,result,fail) => {
+    const active = store.add(data,ACTIVE_EVENT);
+    active.onerror = error => {
+      error.preventDefault();
+      fail(Error('진행 중인 행사를 백업하고 종료한 뒤 복원해 주세요.'));
+    };
+    active.onsuccess = () => {
+      if (!files.length) { result(event); return; }
+      const request = store.get(key);
+      request.onsuccess = () => {
+        try {
+          const updated = updateStationResults(request.result?.files || [],files);
+          store.put({event:updated.event,files:updated.files},key);
+          result(event);
+        } catch (error) { fail(error); }
+      };
+    };
   });
 }
 

@@ -30,7 +30,8 @@ export function changeEventGroup(event, action, group, output) {
     const outputs = {...event.outputs,[retry]:{captured:output.captured,target:output.target}};
     return {...event,retry:null,outputs,revision:revision + 1,
       printed:(event.printed || []).filter(number => number !== retry),
-      reprint:(event.reprint || []).filter(number => number !== retry)};
+      reprint:(event.reprint || []).filter(number => number !== retry),
+      replacedAfterBatch:{...event.replacedAfterBatch,[retry]:event.printBatches?.at(-1)?.number || 0}};
   }
   if (action === 'retry') {
     if (!canRetryGroup(event,group)) throw Error('일부 저장한 모둠을 골라 주세요.');
@@ -61,7 +62,29 @@ export function changeEventGroup(event, action, group, output) {
 export function eventPrintLabel(event,number) {
   if (event.reprint?.includes(number)) return '재출력 필요';
   if (event.printed?.includes(number)) return '인쇄 확인';
-  return event.groups[number - 1] === 'done' ? '출력 대기' : '';
+  if (event.groups[number - 1] !== 'done') return '';
+  return event.prepared?.includes(number) || latestPrintBatch(event,number) ? 'PDF 준비' : '출력 대기';
+}
+
+export function latestPrintBatch(event,number) {
+  const threshold = event.replacedAfterBatch?.[number] || 0;
+  return event.printBatches?.findLast(batch => batch.number > threshold && batch.groups.some(group => group.number === number));
+}
+
+export function addPrintBatch(event,entries,pages,createdAt) {
+  const groups = new Map();
+  for (const {number,copies} of entries) {
+    if (!Number.isInteger(number) || event.groups[number - 1] !== 'done' || number === event.retry
+      || !Number.isInteger(copies) || copies < 1) throw Error('PDF에 담을 모둠을 확인해 주세요.');
+    groups.set(number,(groups.get(number) || 0) + copies);
+  }
+  if (!groups.size || !Number.isInteger(pages) || pages < 1 || !Number.isFinite(Date.parse(createdAt))) {
+    throw Error('인쇄 묶음 정보를 확인해 주세요.');
+  }
+  const previous = event.printBatches || [];
+  const batch = {number:(previous.at(-1)?.number || 0) + 1,createdAt,pages,
+    groups:[...groups].map(([number,copies]) => ({number,copies}))};
+  return {...event,printBatches:[...previous,batch],revision:event.revision + 1};
 }
 
 export function confirmEventPrint(event,numbers) {
@@ -117,7 +140,7 @@ export function archiveEvent(current,report,closedAt) {
     }
   }
   const round = event.round ? {date:event.round.date,code:event.round.code} : undefined;
-  const station = event.station ? {name:event.station.name,first:event.station.first,last:event.station.last} : undefined;
+  const station = event.station ? {...event.station} : undefined;
   const reprint = (event.reprint || []).filter(number => Number.isInteger(number) && number >= 1 && number <= total);
   const printed = (event.printed || []).filter(number => Number.isInteger(number) && number >= 1 && number <= total);
   const inspection = report ? {skipped:report.skipped,pendingLegacy:report.pendingLegacy || 0,
@@ -128,5 +151,6 @@ export function archiveEvent(current,report,closedAt) {
       return {number,group,files,duplicates:checked?.duplicates || 0,missing:group === 'done' && !files,
         reprint:reprint.includes(number),output:outputs[number],printStatus:eventPrintLabel(event,number)};
     })} : null;
-  return {id,title,total,completed,groups:[...groups],round,station,reprint,printed,outputs,closedAt,inspection};
+  return {id,title,total,completed,groups:[...groups],round,station,reprint,printed,outputs,closedAt,inspection,
+    revision:event.revision,stationPlan:event.stationPlan,printBatches:event.printBatches,replacedAfterBatch:event.replacedAfterBatch};
 }

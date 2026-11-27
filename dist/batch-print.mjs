@@ -57,7 +57,7 @@ async function printJpeg(file,maxSide) {
   }
 }
 
-export function setupBatchPrint({downloadBlob,filename}) {
+export function setupBatchPrint({downloadBlob,filename,savePdf}) {
   const $ = id => document.getElementById('batch-print-' + id);
   const dialog = $('dialog');
   const files = [];
@@ -221,7 +221,9 @@ export function setupBatchPrint({downloadBlob,filename}) {
         images.push(await printJpeg(file,maxSide));
         if (token !== epoch) return;
       }
-      downloadBlob(createImagePdf(images,plan.pages,plan.paper,{trim}),filenameForDialog);
+      const pdf = createImagePdf(images,plan.pages,plan.paper,{trim});
+      if (savePdf) await savePdf(pdf,filenameForDialog,selected,plan.pages.length);
+      else downloadBlob(pdf,filenameForDialog);
       $('status').textContent = plan.pages.length + '쪽 PDF 저장을 요청했어요. 저장된 파일을 인쇄해 주세요.';
     } catch (error) {
       $('status').textContent = error.message || 'PDF 저장에 실패했어요. 다시 시도해 주세요.';
